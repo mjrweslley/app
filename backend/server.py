@@ -369,8 +369,35 @@ async def get_summary() -> dict:
 
 @api_router.get("/project-rooms")
 async def list_project_rooms() -> list:
-    # Rota temporária para o frontend não dar 404
-    return []
+    return [
+        # ── ZONA COMUM (Interior) ──
+        {"id": "livingroom_main", "name": "Sala de Estar", "type": "livingroom", "zone": "indoor"},
+        {"id": "kitchen_main", "name": "Cozinha", "type": "kitchen", "zone": "indoor"},
+        {"id": "hall_entrance", "name": "Hall de Entrada", "type": "entrancehall", "zone": "indoor"},
+        {"id": "wc_visitors", "name": "WC Visitas", "type": "wc", "zone": "indoor"},
+        {"id": "stairs_main", "name": "Escadas", "type": "stairs", "zone": "indoor"},
+        
+        # ── ZONA PRIVADA (Master Suite) ──
+        {"id": "suite_master", "name": "Suite Principal", "type": "suite", "zone": "private"},
+        {"id": "closet_master", "name": "Closet da Suite", "type": "closet", "zone": "private"},
+        {"id": "bwc_master", "name": "Casa de Banho (Suite)", "type": "bwc", "zone": "private"},
+        
+        # ── ZONA PRIVADA (Outros Quartos) ──
+        {"id": "bedroom_kids", "name": "Quarto das Crianças", "type": "bedroom", "zone": "private"},
+        {"id": "bedroom_guests", "name": "Quarto de Hóspedes", "type": "bedroom", "zone": "private"},
+        {"id": "bwc_shared", "name": "Casa de Banho (Apoio)", "type": "bwc", "zone": "private"},
+        
+        # ── ZONA TÉCNICA / SERVIÇO ──
+        {"id": "office_main", "name": "Escritório", "type": "office", "zone": "indoor"},
+        {"id": "storeroom_house", "name": "Arrumos", "type": "storeroom", "zone": "indoor"},
+        {"id": "garage_main", "name": "Garagem", "type": "garage", "zone": "technical"},
+        {"id": "workshop_garage", "name": "Oficina", "type": "workshop", "zone": "technical"},
+        
+        # ── ZONA EXTERIOR ──
+        {"id": "backyard_main", "name": "Quintal", "type": "outdoor", "zone": "outdoor"},
+        {"id": "balcony_suite", "name": "Varanda (Suite)", "type": "outdoor", "zone": "outdoor"},
+        {"id": "porch_front", "name": "Alpendre", "type": "outdoor", "zone": "outdoor"}
+    ]
 
 @api_router.get("/room-mappings")
 async def list_room_mappings() -> list:

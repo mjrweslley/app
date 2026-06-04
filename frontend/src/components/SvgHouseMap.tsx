@@ -1,85 +1,117 @@
-import React from 'react'
-import { Pressable, Text, View } from 'react-native'
-import { colors } from '../theme/colors'
-import type { Device } from '../api/devices'
-import type { ProjectRoom } from '../api/rooms'
+import React, { useState } from 'react';
+import { View, StyleSheet, Dimensions, Text, TouchableOpacity } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import { type Device } from '../api/devices';
 
-type Props = {
-  rooms: ProjectRoom[]
-  devices: Device[]
-  onPressRoom: (room: ProjectRoom) => void
-  onPressDevice: (device: Device) => void
+// O SVG agora é importado como um componente React puro!
+import PlantaCasa from '../../assets/mapa.svg'; 
+
+interface Props {
+  devices: Device[];
+  onDevicePress?: (device: Device) => void;
 }
 
-function isDeviceOn(device: Device): boolean {
-  if (device.type === 'blind') {
-    return (device.state?.position ?? 0) > 0
-  }
-  return Boolean(device.state?.on)
-}
+export function SvgHouseMap({ devices, onDevicePress }: Props) {
+  // Estado para zoom e pan (Navegação pelo mapa)
+  const scale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
 
-export function SvgHouseMap({ rooms, devices, onPressRoom, onPressDevice }: Props) {
+  const pinch = Gesture.Pinch().onChange((event) => {
+    scale.value = Math.max(0.5, Math.min(event.scale * scale.value, 3));
+  });
+
+  const pan = Gesture.Pan().onChange((event) => {
+    translateX.value += event.changeX;
+    translateY.value += event.changeY;
+  });
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
+  }));
+
   return (
-    <View
-      style={{
-        borderRadius: 28,
-        padding: 16,
-        backgroundColor: colors.bgElevated,
-        borderWidth: 1,
-        borderColor: colors.border,
-      }}
-    >
-      <Text style={{ color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 10 }}>
-        Mapa da casa
-      </Text>
+    <GestureHandlerRootView style={styles.container}>
+      <GestureDetector gesture={Gesture.Simultaneous(pinch, pan)}>
+        <Animated.View style={[styles.mapWrapper, animatedStyle]}>
+          
+          {/* 1. A PLANTA DA CASA (Fundo) */}
+          <PlantaCasa width="100%" height="100%" style={styles.svg} />
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-        {rooms.map((room) => {
-          const roomDevices = devices.filter((d) => d.project_room_id === room.id)
-          const active = roomDevices.some((d) => isDeviceOn(d))
-
-          return (
-            <Pressable
-              key={room.id}
-              onPress={() => onPressRoom(room)}
-              style={{
-                width: 170,
-                minHeight: 112,
-                borderRadius: 22,
-                padding: 14,
-                backgroundColor: room.color ?? colors.cardAlt,
-                borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.06)',
-              }}
-            >
-              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>{room.name}</Text>
-              <Text style={{ color: 'rgba(255,255,255,0.78)', marginTop: 6 }}>
-                {roomDevices.length} dispositivos
-              </Text>
-              <Text
-                style={{
-                  color: active ? '#86efac' : 'rgba(255,255,255,0.55)',
-                  marginTop: 6,
-                }}
+          {/* 2. OS DISPOSITIVOS (Sobrepostos) */}
+          {devices.map((device) => {
+            // Nota: Numa fase posterior, usaremos o device.position.x e y reais.
+            // Para já, vamos garantir que eles renderizam condicionalmente.
+            const isOnline = device.online;
+            const isOn = device.state?.on;
+            
+            return (
+              <TouchableOpacity
+                key={device.id}
+                onPress={() => onDevicePress?.(device)}
+                style={[
+                  styles.deviceMarker,
+                  // Posição temporária (centro do ecrã) se o X e Y forem 0
+                  { 
+                    left: device.position?.x > 0 ? device.position.x : 150, 
+                    top: device.position?.y > 0 ? device.position.y : 150,
+                    backgroundColor: isOn ? 'rgba(0, 255, 128, 0.2)' : 'rgba(255, 255, 255, 0.05)'
+                  }
+                ]}
               >
-                {active ? 'Ambiente activo' : 'Ambiente calmo'}
-              </Text>
+                <View style={[styles.dot, { backgroundColor: isOnline ? (isOn ? '#00FF80' : '#888') : '#FF4444' }]} />
+                <Text style={styles.deviceName}>{device.name}</Text>
+              </TouchableOpacity>
+            );
+          })}
 
-              {roomDevices.slice(0, 2).map((device) => (
-                <Pressable
-                  key={device.id}
-                  onPress={() => onPressDevice(device)}
-                  style={{ marginTop: 6 }}
-                >
-                  <Text numberOfLines={1} style={{ color: '#fff', fontSize: 12 }}>
-                    {device.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </Pressable>
-          )
-        })}
-      </View>
-    </View>
-  )
+        </Animated.View>
+      </GestureDetector>
+    </GestureHandlerRootView>
+  );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0A0A0A',
+    overflow: 'hidden',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)'
+  },
+  mapWrapper: {
+    flex: 1,
+    width: 1000, // Tamanho virtual do Canvas
+    height: 800,
+  },
+  svg: {
+    position: 'absolute',
+    opacity: 0.3, // Estilo Dark/Glassmorphism para a planta
+  },
+  deviceMarker: {
+    position: 'absolute',
+    padding: 8,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  deviceName: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+  }
+});
