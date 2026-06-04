@@ -173,18 +173,10 @@ def save_json_file(path: str | Path, data: Any) -> None:
         json.dump(data, file, indent=2, ensure_ascii=False)
 
 def load_devices_raw() -> dict:
-    # Garante que o ficheiro devolve sempre o formato {"devices": []}
-    return load_json_file(ACTIVE_DEVICES_PATH, {"devices": []})
-    
-    # Prevenção: Se ler um formato antigo (dicionário por IPs), converte na hora
-    if isinstance(data, dict) and "devices" not in data:
-        migrated_list = []
-        for ip, info in data.items():
-            if isinstance(info, dict):
-                info["vendor_device_id"] = ip # O IP passa a ser uma propriedade
-                migrated_list.append(info)
-        return {"devices": migrated_list}
-        
+    data = load_json_file(ACTIVE_DEVICES_PATH, {"devices": []})
+    # Garante que devolve sempre o dicionário raiz com o Array "devices"
+    if not isinstance(data, dict) or "devices" not in data:
+        return {"devices": []}
     return data
 
 def save_devices_raw(data: dict) -> None:
@@ -259,8 +251,8 @@ async def create_device(body: DeviceCreate) -> Device:
     devices_list = data.get("devices", [])
     ip = body.ip
 
-    # 1. Verifica duplicados
-    if any(d.get("vendor_device_id") == body.ip for d in devices_list):
+    # 1. Verifica duplicados usando a nova chave padrão 'vendor_device_id'
+    if any(d.get("vendor_device_id") == ip for d in devices_list):
         raise HTTPException(status_code=400, detail="Dispositivo já existe.")
 
     try:
@@ -275,7 +267,7 @@ async def create_device(body: DeviceCreate) -> Device:
         # Cria o ID limpo esperado
         device_id = f"plug_{ip.replace('.', '_')}"
 
-        # Nova estrutura padronizada
+        # Nova estrutura padronizada (Exatamente igual ao plugs.py)
         new_device_raw = {
             "id": device_id,
             "vendor_device_id": ip,
@@ -292,12 +284,12 @@ async def create_device(body: DeviceCreate) -> Device:
             "mapping_status": body.mapping_status,
         }
 
-        # Adiciona ao Array e guarda
+        # Adiciona ao Array e guarda apenas no backend (nova localização)
         devices_list.append(new_device_raw)
         data["devices"] = devices_list
         save_devices_raw(data)
 
-        # Devolve o objeto criado
+        # Devolve o objeto criado para o frontend processar
         return map_legacy_device(device_id, new_device_raw)
     except Exception as e:
         logger.error(f"Erro ao adicionar {ip}: {e}")
