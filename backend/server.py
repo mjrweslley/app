@@ -27,7 +27,7 @@ DOTENV_PATH = ROOT_DIR / ".env"
 load_dotenv(DOTENV_PATH)
 
 REQUIRED_ENV_VARS = [
-    "DB_PATH_NEW", "DB_PATH_OLD", "DEVICES_NEW", "DEVICES_OLD",
+    "DB_PATH_NEW", "DB_PATH_OLD", "DEVICES_FILE", "DEVICES_OLD",
     "PORT_OLD", "PORT_BACKEND", "PORT_FRONTEND", "TAPO_EMAIL", "TAPO_PASS"
 ]
 
@@ -37,13 +37,13 @@ if missing_envs:
     print(f"Aviso: Faltam variáveis de ambiente no .env: {', '.join(missing_envs)}")
 
 DB_PATH_NEW = os.environ.get("DB_PATH_NEW", "/home/mjrweslley/app/backend/history.db")
-DEVICES_NEW = os.environ.get("DEVICES_NEW", "/home/mjrweslley/app/frontend/.expo/devices.json")
+DEVICES_FILE = os.environ.get("DEVICES_FILE", "/home/mjrweslley/app/backend/devices.json")
 PORT_BACKEND = int(os.environ.get("PORT_BACKEND", 8081))
 TAPO_EMAIL = os.environ.get("TAPO_EMAIL", "")
 TAPO_PASS = os.environ.get("TAPO_PASS", "")
 
 ACTIVE_DB_PATH = DB_PATH_NEW
-ACTIVE_DEVICES_PATH = DEVICES_NEW
+ACTIVE_DEVICES_PATH = DEVICES_FILE
 ROOM_MAPPINGS_FILE = str(ROOT_DIR / "room_mappings.json")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -172,11 +172,23 @@ def save_json_file(path: str | Path, data: Any) -> None:
     with open(path, "w", encoding="utf-8") as file:
         json.dump(data, file, indent=2, ensure_ascii=False)
 
-def load_devices_raw() -> dict[str, dict[str, Any]]:
-    return load_json_file(ACTIVE_DEVICES_PATH, {})
+def load_devices_raw() -> dict:
+    # Garante que o ficheiro devolve sempre o formato {"devices": []}
+    data = load_json_file(DEVICES_FILE, {"devices": []})
+    
+    # Prevenção: Se ler um formato antigo (dicionário por IPs), converte na hora
+    if isinstance(data, dict) and "devices" not in data:
+        migrated_list = []
+        for ip, info in data.items():
+            if isinstance(info, dict):
+                info["vendor_device_id"] = ip # O IP passa a ser uma propriedade
+                migrated_list.append(info)
+        return {"devices": migrated_list}
+        
+    return data
 
-def save_devices_raw(data: dict[str, dict[str, Any]]) -> None:
-    save_json_file(ACTIVE_DEVICES_PATH, data)
+def save_devices_raw(data: dict) -> None:
+    save_json_file(DEVICES_FILE, data)
 
 # ── MODELOS PYDANTIC ──
 class Position3D(BaseModel):
@@ -232,31 +244,50 @@ async def list_devices() -> list[Device]:
 
 @api_router.post("/devices", response_model=Device)
 async def create_device(body: DeviceCreate) -> Device:
-    devices_data = load_devices_raw()
+    data = load_devices_raw()
+    devices_list = data.get("devices", [])
     ip = body.ip
 
-    if ip in devices_data:
+    # Verifica se a tomada já existe no array
+    if any(d.get("vendor_device_id") == ip for d in devices_list):
         raise HTTPException(status_code=400, detail="Dispositivo já existe.")
 
     try:
-        # Tenta comunicar com a tomada física!
+        # Comunica com a tomada
         info = tapo_request_klap(ip, TAPO_EMAIL, TAPO_PASS, "get_device_info")
         raw_name = info.get("nickname", f"Tomada {ip}")
-        try: name = base64.b64decode(raw_name).decode('utf-8')
-        except: name = raw_name
+        try: 
+            name = base64.b64decode(raw_name).decode('utf-8')
+        except: 
+            name = raw_name
 
-        device = Device(
-            id=ip, name=name, type=body.type, vendor=body.vendor,
-            room_id=body.project_room_id or body.room_id or "default",
-            state=default_state_for_type(body.type),
-            position=body.position or Position3D(x=0, y=0, z=0),
-            online=True, created_at=utc_now_iso(),
-            vendor_room_name=body.vendor_room_name, project_room_id=body.project_room_id,
-            mapping_status=body.mapping_status,
-        )
-        devices_data[ip] = device_to_storage(device)
-        save_devices_raw(devices_data)
-        return device
+        # Cria o ID limpo esperado
+        device_id = f"plug_{ip.replace('.', '_')}"
+
+        # Nova estrutura padronizada
+        new_device_raw = {
+            "id": device_id,
+            "vendor_device_id": ip,
+            "name": name,
+            "type": body.type,
+            "vendor": body.vendor,
+            "room_id": body.project_room_id or body.room_id or "Unknown",
+            "state": default_state_for_type(body.type),
+            "position": (body.position or Position3D(x=0, y=0, z=0)).model_dump(),
+            "online": True,
+            "created_at": utc_now_iso(),
+            "vendor_room_name": body.vendor_room_name,
+            "project_room_id": body.project_room_id,
+            "mapping_status": body.mapping_status,
+        }
+
+        # Adiciona ao Array e guarda
+        devices_list.append(new_device_raw)
+        data["devices"] = devices_list
+        save_devices_raw(data)
+
+        # Devolve o objeto criado
+        return map_legacy_device(device_id, new_device_raw)
     except Exception as e:
         logger.error(f"Erro ao adicionar {ip}: {e}")
         raise HTTPException(status_code=502, detail=f"Falha ao comunicar com a tomada {ip}")

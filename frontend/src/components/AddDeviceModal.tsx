@@ -1,3 +1,4 @@
+// src/components/AddDeviceModal.tsx
 import React, { useState } from 'react'
 import { Modal, View, Text, TextInput, Pressable, ActivityIndicator, Alert } from 'react-native'
 import { useQueryClient } from '@tanstack/react-query'
@@ -18,27 +19,28 @@ export function AddDeviceModal({ visible, onClose }: Props) {
     if (!ip.trim()) return
     setLoading(true)
     try {
-      // Faz o pedido POST à nova API FastAPI enviando o IP
+      // 1. Delegar a criação totalmente à API (HTTP POST)
       await devicesApi.create({ 
         ip: ip.trim(), 
         type: 'outlet', 
         vendor: 'tapo' 
       })
       
-      // Atualiza a lista de dispositivos automaticamente
+      // 2. Invalidar a cache para forçar um "Refetch" automático e limpar o estado do Frontend
       await queryClient.invalidateQueries({ queryKey: ['devices'] })
       await queryClient.invalidateQueries({ queryKey: ['summary'] })
       
       setIp('')
       onClose()
     } catch (error) {
-      Alert.alert('Erro', 'Falha ao comunicar com a tomada. Verifique se o IP está correto e se a tomada está ligada.')
+      Alert.alert('Erro', 'Não foi possível contactar o Backend ou a Tomada.')
     } finally {
       setLoading(false)
     }
   }
 
   return (
+    // ... O seu JSX de apresentação (View, TextInput, etc) mantém-se igual ...
     <Modal visible={visible} transparent animationType="fade">
       <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' }}>
         <View style={{ backgroundColor: colors.card, padding: 24, borderRadius: 24, width: '90%', maxWidth: 400, borderWidth: 1, borderColor: colors.border }}>
