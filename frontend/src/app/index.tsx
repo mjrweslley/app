@@ -12,6 +12,7 @@ import { SvgHouseMap } from '../components/SvgHouseMap'
 import { UnassignedDevicesPanel } from '../components/UnassignedDevicesPanel'
 import { RoomMapperSheet } from '../components/RoomMapperSheet'
 import { DeviceDetailSheet, type DetailRange } from '../components/DeviceDetailSheet'
+import { AddDeviceModal } from '../components/AddDeviceModal'
 
 export default function HomeScreen() {
   const queryClient = useQueryClient()
@@ -21,6 +22,7 @@ export default function HomeScreen() {
   const [selectedRoom, setSelectedRoom] = useState<ProjectRoom | null>(null)
   const [mapperOpen, setMapperOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [addModalOpen, setAddModalOpen] = useState(false)
   const [range, setRange] = useState<DetailRange>('hourly')
 
   const roomList = rooms.data ?? []
@@ -80,16 +82,19 @@ export default function HomeScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 28 }}>
         <GlassCard style={{ padding: 18, marginBottom: 14 }}>
-          <Text style={{ color: colors.text, fontSize: 28, fontWeight: '800' }}>SmartHome</Text>
-          <Text style={{ color: colors.textMuted, marginTop: 4 }}>Ambiente escuro, calmo e pronto para 24/7.</Text>
-          <View style={{ marginTop: 14 }}>
-            <QuickStatsBar
-              mapped={mappedCount}
-              unmapped={unmappedCount}
-              online={summaryData?.online_count ?? 0}
-              watts={summaryData?.total_power_w ?? 0}
-            />
+          {/* Cabeçalho com o botão + */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ color: colors.text, fontSize: 28, fontWeight: '800' }}>SmartHome</Text>
+            
+            <Pressable 
+              onPress={() => setAddModalOpen(true)}
+              style={{ backgroundColor: colors.cardAlt, padding: 10, borderRadius: 99, borderWidth: 1, borderColor: colors.border }}
+            >
+              <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>＋ Nova</Text>
+            </Pressable>
           </View>
+          
+          <Text style={{ color: colors.textMuted, marginTop: 4 }}>Ambiente escuro, calmo e pronto para 24/7.</Text>
         </GlassCard>
 
         <View style={{ flexDirection: isTablet ? 'row' : 'column', gap: 16 }}>
@@ -187,6 +192,10 @@ export default function HomeScreen() {
         onClose={() => setDetailOpen(false)}
         onCreateRule={createRule}
         onDeleteRule={deleteRule}
+      />
+    <AddDeviceModal 
+        visible={addModalOpen} 
+        onClose={() => setAddModalOpen(false)} 
       />
     </SafeAreaView>
   )
