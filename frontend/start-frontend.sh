@@ -1,5 +1,11 @@
-#!/usr/bin/env bash
-set -e
-export PATH="/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
+#!/bin/bash
 cd /home/mjrweslley/app/frontend
-exec /usr/local/bin/npx expo start --web --port 8082 --clear
+
+# 1. Apaga a pasta de produção antiga para evitar conflitos
+rm -rf dist/
+
+# 2. Exporta o projeto web (A sintaxe moderna do Expo 50+)
+npx expo export
+
+# 3. Serve a pasta 'dist', forçando a escuta no IP público (0.0.0.0) na porta 8082
+npx serve dist -l tcp://0.0.0.0:8082 -s

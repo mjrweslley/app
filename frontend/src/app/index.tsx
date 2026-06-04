@@ -1,202 +1,75 @@
-import React, { useMemo, useState } from 'react'
-import { SafeAreaView, ScrollView, Text, View, Pressable, useWindowDimensions } from 'react-native'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { devicesApi, type Device } from '../api/devices'
-import { mappingsApi } from '../api/mappings'
-import { type ProjectRoom } from '../api/rooms'
-import { useSmarthomeData } from '../hooks/useSmarthomeData'
-import { colors } from '../theme/colors'
-import { GlassCard } from '../components/GlassCard'
-import { QuickStatsBar } from '../components/QuickStatsBar'
-import { SvgHouseMap } from '../components/SvgHouseMap'
-import { UnassignedDevicesPanel } from '../components/UnassignedDevicesPanel'
-import { RoomMapperSheet } from '../components/RoomMapperSheet'
-import { DeviceDetailSheet, type DetailRange } from '../components/DeviceDetailSheet'
-import { AddDeviceModal } from '../components/AddDeviceModal'
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, RefreshControl } from 'react-native';
+import { useSmarthomeData } from '../hooks/useSmarthomeData';
+import { AddDeviceModal } from '../components/AddDeviceModal';
+import { OutletCard } from '../components/dashboard/OutletCard';
+import { DeviceDetailSheet } from '../components/DeviceDetailSheet';
 
-export default function HomeScreen() {
-  const queryClient = useQueryClient()
-  const { width } = useWindowDimensions()
-  const { rooms, devices, summary } = useSmarthomeData()
-  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
-  const [selectedRoom, setSelectedRoom] = useState<ProjectRoom | null>(null)
-  const [mapperOpen, setMapperOpen] = useState(false)
-  const [detailOpen, setDetailOpen] = useState(false)
-  const [addModalOpen, setAddModalOpen] = useState(false)
-  const [range, setRange] = useState<DetailRange>('hourly')
+export default function Dashboard() {
+  const { devices } = useSmarthomeData();
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedDevice, setSelectedDevice] = useState<any>(null);
+  const [timeStr, setTimeStr] = useState('');
 
-  const roomList = rooms.data ?? []
-  const deviceList = devices.data ?? []
-  const summaryData = summary.data
-  const mappedCount = summaryData?.mapped_devices_count ?? 0
-  const unmappedCount = summaryData?.unmapped_devices_count ?? 0
-  const isTablet = width >= 900
-  const projectRoomOptions = useMemo(() => roomList, [roomList])
+  const deviceList = devices.data || [];
+  // Se algum estiver online e ligado, ou apenas online (lógica do seu home.html)
+  const isOnline = deviceList.some((d: any) => d.online); 
 
-  const consumptionQuery = useQuery({
-    queryKey: ['device-consumption', selectedDevice?.id, range],
-    queryFn: () => devicesApi.consumption(selectedDevice!.id, 24),
-    enabled: !!selectedDevice?.id && detailOpen,
-  })
-
-  const rulesQuery = useQuery({
-    queryKey: ['alert-rules', selectedDevice?.id],
-    queryFn: () => devicesApi.alertRules(selectedDevice?.id),
-    enabled: !!selectedDevice?.id && detailOpen,
-  })
-
-  async function mapDeviceToRoom(device: Device, room: ProjectRoom) {
-    await mappingsApi.create({
-      vendor: device.vendor,
-      vendor_room_name: device.vendor_room_name ?? device.room_id,
-      project_room_id: room.id,
-      match_mode: 'manual',
-    })
-    await queryClient.invalidateQueries({ queryKey: ['room-mappings'] })
-    await queryClient.invalidateQueries({ queryKey: ['devices'] })
-    await queryClient.invalidateQueries({ queryKey: ['summary'] })
-    setSelectedDevice(null)
-    setMapperOpen(false)
-  }
-
-  async function createRule() {
-    if (!selectedDevice) return
-    await devicesApi.createAlertRule({
-      device_id: selectedDevice.id,
-      name: `Regra ${selectedDevice.name}`,
-      metric: 'power',
-      operator: '>',
-      threshold: 1200,
-      enabled: true,
-      notify: true,
-    })
-    await queryClient.invalidateQueries({ queryKey: ['alert-rules', selectedDevice.id] })
-  }
-
-  async function deleteRule(id: string) {
-    await devicesApi.deleteAlertRule(id)
-    if (selectedDevice?.id) await queryClient.invalidateQueries({ queryKey: ['alert-rules', selectedDevice.id] })
-  }
+  useEffect(() => {
+    // Atualiza o relógio a cada segundo como no seu script antigo
+    const timer = setInterval(() => {
+      setTimeStr(new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 28 }}>
-        <GlassCard style={{ padding: 18, marginBottom: 14 }}>
-          {/* Cabeçalho com o botão + */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ color: colors.text, fontSize: 28, fontWeight: '800' }}>SmartHome</Text>
-            
-            <Pressable 
-              onPress={() => setAddModalOpen(true)}
-              style={{ backgroundColor: colors.cardAlt, padding: 10, borderRadius: 99, borderWidth: 1, borderColor: colors.border }}
-            >
-              <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>＋ Nova</Text>
-            </Pressable>
-          </View>
-          
-          <Text style={{ color: colors.textMuted, marginTop: 4 }}>Ambiente escuro, calmo e pronto para 24/7.</Text>
-        </GlassCard>
-
-        <View style={{ flexDirection: isTablet ? 'row' : 'column', gap: 16 }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <SvgHouseMap
-              rooms={roomList}
-              devices={deviceList}
-              onPressRoom={setSelectedRoom}
-              onPressDevice={(device) => {
-                setSelectedDevice(device)
-                setMapperOpen(true)
-                setDetailOpen(true)
-                setRange('hourly')
-              }}
-            />
-          </View>
-
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <UnassignedDevicesPanel
-              devices={deviceList}
-              onMapDevice={(device) => {
-                setSelectedDevice(device)
-                setMapperOpen(true)
-                setDetailOpen(true)
-                setRange('hourly')
-              }}
-            />
-
-            {selectedDevice && (
-              <GlassCard style={{ marginTop: 16, padding: 16 }}>
-                <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{selectedDevice.name}</Text>
-                <Text style={{ color: colors.textMuted, marginTop: 4 }}>Vendor room: {selectedDevice.vendor_room_name ?? '—'}</Text>
-                <Text style={{ color: colors.textMuted, marginTop: 2 }}>Project room: {selectedDevice.project_room_id ?? '—'}</Text>
-
-                <View style={{ marginTop: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {projectRoomOptions.map((room) => (
-                    <Pressable
-                      key={room.id}
-                      onPress={() => mapDeviceToRoom(selectedDevice, room)}
-                      style={{
-                        paddingVertical: 10,
-                        paddingHorizontal: 12,
-                        borderRadius: 999,
-                        backgroundColor: colors.cardAlt,
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                      }}
-                    >
-                      <Text style={{ color: colors.text }}>{room.name}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-
-                <Pressable
-                  onPress={() => setDetailOpen(true)}
-                  style={{
-                    marginTop: 14,
-                    paddingVertical: 12,
-                    borderRadius: 16,
-                    backgroundColor: colors.cardAlt,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                  }}
-                >
-                  <Text style={{ color: colors.text, textAlign: 'center', fontWeight: '700' }}>Abrir detalhes</Text>
-                </Pressable>
-              </GlassCard>
-            )}
-
-            {selectedRoom && (
-              <GlassCard style={{ marginTop: 16, padding: 16 }}>
-                <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{selectedRoom.name}</Text>
-                <Text style={{ color: colors.textMuted, marginTop: 4 }}>Room do projecto seleccionada.</Text>
-              </GlassCard>
-            )}
-          </View>
+    <View style={styles.container}>
+      {/* HEADER CLASSICO */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>
+            Smart Home Dashboard <Text style={{ color: isOnline ? '#e8af34' : '#797876' }}>{isOnline ? '🟡' : '⚪'}</Text>
+          </Text>
+          <Text style={styles.subtitle}>Última atualização às {timeStr}</Text>
         </View>
+        <TouchableOpacity style={styles.addBtn} onPress={() => setShowAddModal(true)}>
+          <Text style={styles.addBtnText}>+ Adicionar</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* GRELHA RÁPIDA DE DISPOSITIVOS */}
+      <ScrollView 
+        contentContainerStyle={styles.grid}
+        refreshControl={<RefreshControl refreshing={devices.isFetching} onRefresh={devices.refetch} tintColor="#4f98a3" />}
+      >
+        {deviceList.map((device: any) => (
+          <OutletCard 
+            key={device.id} 
+            device={device} 
+            onPress={() => setSelectedDevice(device)} 
+          />
+        ))}
       </ScrollView>
 
-      <RoomMapperSheet
-        visible={mapperOpen}
-        device={selectedDevice}
-        rooms={roomList}
-        onClose={() => setMapperOpen(false)}
-        onPickRoom={(room) => selectedDevice && mapDeviceToRoom(selectedDevice, room)}
-      />
-
-      <DeviceDetailSheet
-        visible={detailOpen}
-        device={selectedDevice}
-        consumption={consumptionQuery.data ?? null}
-        rules={rulesQuery.data ?? []}
-        range={range}
-        onRangeChange={setRange}
-        onClose={() => setDetailOpen(false)}
-        onCreateRule={createRule}
-        onDeleteRule={deleteRule}
-      />
-    <AddDeviceModal 
-        visible={addModalOpen} 
-        onClose={() => setAddModalOpen(false)} 
-      />
-    </SafeAreaView>
-  )
+      {/* MODAIS */}
+      <AddDeviceModal visible={showAddModal} onClose={() => setShowAddModal(false)} />
+      {selectedDevice && (
+        <DeviceDetailSheet device={selectedDevice} onClose={() => setSelectedDevice(null)} />
+      )}
+    </View>
+  );
 }
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#171614' }, // Cores do seu antigo CSS dark theme
+  header: { 
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', 
+    padding: 20, paddingTop: 60, borderBottomWidth: 1, borderBottomColor: '#393836'
+  },
+  title: { fontSize: 22, fontWeight: 'bold', color: '#cdccca', marginBottom: 4 },
+  subtitle: { fontSize: 14, color: '#797876' },
+  addBtn: { backgroundColor: '#4f98a3', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 6 },
+  addBtnText: { color: '#fff', fontWeight: 'bold' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 15, gap: 15, justifyContent: 'space-between' },
+});

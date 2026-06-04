@@ -114,4 +114,10 @@ export const devicesApi = {
   
   ackAlert: (id: string) =>
     request<{ ok: boolean }>(`/alerts/${encodeURIComponent(id)}/ack`, { method: 'POST' }),
+
+  updateState: (id: string, state: { on: boolean }) => 
+    request<{ ok: boolean }>(`/devices/${encodeURIComponent(id)}/state`, { 
+      method: 'PATCH',
+      body: JSON.stringify(state)
+    }),
 }

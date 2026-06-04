@@ -36,13 +36,13 @@ if missing_envs:
     # Apenas log de aviso, não cracha o servidor se faltar algo em dev
     print(f"Aviso: Faltam variáveis de ambiente no .env: {', '.join(missing_envs)}")
 
-DB_PATH_NEW = os.environ.get("DB_PATH_NEW", "/home/mjrweslley/app/backend/history.db")
+DB_PATH = os.environ.get("DB_PATH", "/home/mjrweslley/app/backend/history.db")
 DEVICES_FILE = os.environ.get("DEVICES_FILE", "/home/mjrweslley/app/backend/devices.json")
 PORT_BACKEND = int(os.environ.get("PORT_BACKEND", 8081))
 TAPO_EMAIL = os.environ.get("TAPO_EMAIL", "")
 TAPO_PASS = os.environ.get("TAPO_PASS", "")
 
-ACTIVE_DB_PATH = DB_PATH_NEW
+ACTIVE_DB_PATH = DB_PATH
 ACTIVE_DEVICES_PATH = DEVICES_FILE
 ROOM_MAPPINGS_FILE = str(ROOT_DIR / "room_mappings.json")
 
@@ -230,24 +230,26 @@ def device_to_storage(device: Device, raw_existing: dict[str, Any] | None = None
     return base
 
 # ── ROTAS DE DISPOSITIVOS ──
-@api_router.get("/devices", response_model=list[Device])
-async def list_devices() -> list[Device]:
+@api_router.get("/devices")
+async def list_devices() -> list:
     try:
         data = load_devices_raw()
-        if not isinstance(data, dict) or "devices" not in data:
-            return []
+        devices = data.get("devices", [])
         
-        devices_list = data["devices"]
-        valid_devices = []
-        
-        for d in devices_list:
-            if isinstance(d, dict):
-                # Conversão on-the-fly para o Pydantic não crashar
-                if d.get("type") == "plug":
-                    d["type"] = "outlet"
-                valid_devices.append(Device(**d))
-                
-        return valid_devices
+        # Limpa e formata os dados "on the fly" antes de enviar para o Frontend
+        clean_devices = []
+        for d in devices:
+            if not isinstance(d, dict): continue
+            
+            # Se for do tipo antigo "plug", força para "outlet" para não avariar o frontend
+            if d.get("type") == "plug": d["type"] = "outlet"
+            
+            # Garante que as chaves de estado existem
+            if "state" not in d: d["state"] = {"on": False, "power_w": 0, "energy_kwh": 0}
+            
+            clean_devices.append(d)
+            
+        return clean_devices
     except Exception as e:
         logger.error(f"Erro ao listar dispositivos: {e}")
         return []
@@ -346,6 +348,35 @@ async def delete_device(device_id: str) -> dict[str, bool]:
     return {"ok": True}
 
 # ── ROTAS PARA O DASHBOARD (SUMMARY E ROOMS) ──
+
+# Crie este modelo algures no topo do ficheiro junto aos outros
+class StateUpdate(BaseModel):
+    on: bool
+
+# Adicione a rota
+@api_router.patch("/devices/{device_id}/state")
+async def update_device_state(device_id: str, body: StateUpdate):
+    data = load_devices_raw()
+    devices_list = data.get("devices", [])
+    
+    target = next((d for d in devices_list if isinstance(d, dict) and d.get("id") == device_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Dispositivo não encontrado")
+        
+    ip = target.get("vendor_device_id")
+    try:
+        # 1. Envia comando REAL para a tomada
+        tapo_request_klap(ip, TAPO_EMAIL, TAPO_PASS, "set_device_info", {"device_on": body.on})
+        
+        # 2. Atualiza o ficheiro JSON imediatamente para o frontend ver a mudança
+        if "state" not in target: target["state"] = {}
+        target["state"]["on"] = body.on
+        save_devices_raw(data)
+        
+        return {"ok": True, "on": body.on}
+    except Exception as e:
+        logger.error(f"Erro ao alternar tomada {ip}: {e}")
+        raise HTTPException(status_code=502, detail="Falha ao comunicar com a tomada.")
 
 @api_router.get("/summary")
 async def get_summary() -> dict:
