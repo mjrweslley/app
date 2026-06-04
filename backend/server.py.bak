@@ -1,0 +1,792 @@
+from __future__ import annotations
+
+import json
+import logging
+import math
+import os
+import sqlite3
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Literal
+
+import uvicorn
+from dotenv import load_dotenv
+from fastapi import APIRouter, FastAPI, HTTPException, Query
+from pydantic import BaseModel
+from starlette.middleware.cors import CORSMiddleware
+
+ROOT_DIR = Path(__file__).resolve().parent
+DOTENV_PATH = ROOT_DIR / ".env"
+load_dotenv(DOTENV_PATH)
+
+REQUIRED_ENV_VARS = [
+    "DB_PATH_NEW",
+    "DB_PATH_OLD",
+    "DEVICES_NEW",
+    "DEVICES_OLD",
+    "PORT_OLD",
+    "PORT_BACKEND",
+    "PORT_FRONTEND",
+    "TAPO_EMAIL",
+    "TAPO_PASS",
+    "API_KEY",
+]
+
+missing_envs = [name for name in REQUIRED_ENV_VARS if not os.getenv(name)]
+if missing_envs:
+    raise RuntimeError(f"Faltam variáveis de ambiente no .env: {', '.join(missing_envs)}")
+
+DB_PATH_NEW = os.environ["DB_PATH_NEW"]
+DB_PATH_OLD = os.environ["DB_PATH_OLD"]
+DEVICES_NEW = os.environ["DEVICES_NEW"]
+DEVICES_OLD = os.environ["DEVICES_OLD"]
+PORT_OLD = int(os.environ["PORT_OLD"])
+PORT_BACKEND = int(os.environ["PORT_BACKEND"])
+PORT_FRONTEND = int(os.environ["PORT_FRONTEND"])
+TAPO_EMAIL = os.environ["TAPO_EMAIL"]
+TAPO_PASS = os.environ["TAPO_PASS"]
+API_KEY = os.environ["API_KEY"]
+
+ACTIVE_DB_PATH = DB_PATH_NEW
+ACTIVE_DEVICES_PATH = DEVICES_NEW
+ROOM_MAPPINGS_FILE = str(ROOT_DIR / "room_mappings.json")
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Domotica Hub API")
+api_router = APIRouter(prefix="/api")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def get_db_connection() -> sqlite3.Connection:
+    conn = sqlite3.connect(ACTIVE_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db() -> None:
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS consumos (
+                ip TEXT,
+                timestamp DATETIME,
+                watts REAL,
+                kwh REAL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ip_time
+            ON consumos(ip, timestamp)
+            """
+        )
+        conn.commit()
+
+
+def load_json_file(path: str | Path, fallback: Any) -> Any:
+    if not Path(path).exists():
+        return fallback
+    with open(path, "r", encoding="utf-8") as file:
+        data = json.load(file)
+    return data if data is not None else fallback
+
+
+def save_json_file(path: str | Path, data: Any) -> None:
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(data, file, indent=2, ensure_ascii=False)
+
+
+def load_devices_raw() -> dict[str, dict[str, Any]]:
+    data = load_json_file(ACTIVE_DEVICES_PATH, {})
+    return data if isinstance(data, dict) else {}
+
+
+def save_devices_raw(data: dict[str, dict[str, Any]]) -> None:
+    save_json_file(ACTIVE_DEVICES_PATH, data)
+
+
+def load_room_mappings() -> dict[str, dict[str, Any]]:
+    data = load_json_file(ROOM_MAPPINGS_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def save_room_mappings(data: dict[str, dict[str, Any]]) -> None:
+    save_json_file(ROOM_MAPPINGS_FILE, data)
+
+
+class Position3D(BaseModel):
+    x: float
+    y: float
+    z: float
+
+
+class Device(BaseModel):
+    id: str
+    name: str
+    type: Literal["light", "blind", "outlet", "climate", "sensor"]
+    vendor: Literal["tapo", "shelly", "sonoff", "generic"]
+    room_id: str
+    state: dict[str, Any]
+    position: Position3D
+    online: bool
+    created_at: str
+    vendor_room_name: str | None = None
+    project_room_id: str | None = None
+    mapping_status: Literal["matched", "unmatched", "manual"] = "matched"
+
+
+class DeviceCreate(BaseModel):
+    name: str
+    type: Literal["light", "blind", "outlet", "climate", "sensor"]
+    vendor: Literal["tapo", "shelly", "sonoff", "generic"]
+    room_id: str
+    state: dict[str, Any] | None = None
+    position: Position3D | None = None
+    vendor_room_name: str | None = None
+    project_room_id: str | None = None
+    mapping_status: Literal["matched", "unmatched", "manual"] = "matched"
+
+
+class DevicePatch(BaseModel):
+    name: str | None = None
+    type: Literal["light", "blind", "outlet", "climate", "sensor"] | None = None
+    vendor: Literal["tapo", "shelly", "sonoff", "generic"] | None = None
+    room_id: str | None = None
+    state: dict[str, Any] | None = None
+    position: Position3D | None = None
+    online: bool | None = None
+    vendor_room_name: str | None = None
+    project_room_id: str | None = None
+    mapping_status: Literal["matched", "unmatched", "manual"] | None = None
+
+
+class Room(BaseModel):
+    id: str
+    name: str
+    x: float
+    y: float
+    width: float
+    depth: float
+    height: float
+    color: str
+
+
+class RoomMapping(BaseModel):
+    id: str
+    vendor: Literal["tapo", "shelly", "sonoff", "generic"]
+    vendor_room_name: str
+    project_room_id: str
+    match_mode: Literal["auto", "manual"]
+    updated_at: str
+
+
+class RoomMappingCreate(BaseModel):
+    vendor: Literal["tapo", "shelly", "sonoff", "generic"]
+    vendor_room_name: str
+    project_room_id: str
+    match_mode: Literal["auto", "manual"] = "manual"
+
+
+class AlertRule(BaseModel):
+    id: str
+    device_id: str
+    name: str
+    metric: str
+    operator: str
+    threshold: float
+    enabled: bool
+    notify: bool
+    created_at: str
+
+
+class AlertRuleCreate(BaseModel):
+    device_id: str
+    name: str
+    metric: str
+    operator: str
+    threshold: float
+    enabled: bool = True
+    notify: bool = True
+
+
+class AlertEvent(BaseModel):
+    id: str
+    device_id: str
+    rule_id: str | None = None
+    title: str
+    message: str
+    severity: Literal["info", "warning", "critical"]
+    acknowledged: bool
+    created_at: str
+
+
+class AppConfig(BaseModel):
+    flask_server_url: str
+    flask_api_key: str
+    house_name: str
+    language: str
+    voice_assistant_enabled: bool
+    alexa_enabled: bool
+
+
+class Summary(BaseModel):
+    rooms_count: int
+    devices_count: int
+    mapped_devices_count: int
+    unmapped_devices_count: int
+    online_count: int
+    lights_on: int
+    total_power_w: float
+    avg_temperature_c: float | None = None
+    alerts_unacked: int
+
+
+class ConsumptionPoint(BaseModel):
+    t: str
+    power_w: float
+
+
+class ConsumptionResponse(BaseModel):
+    device_id: str
+    hours: int
+    points: list[ConsumptionPoint]
+    total_kwh: float
+
+
+ROOMS: list[Room] = [
+    Room(id="balcony", name="Varanda", x=0, y=0, width=3.2, depth=1.8, height=2.6, color="#0f766e"),
+    Room(id="kitchen", name="Cozinha", x=3.2, y=0, width=3.4, depth=3.0, height=2.6, color="#1d4ed8"),
+    Room(id="livingroom", name="Sala", x=6.6, y=0, width=5.0, depth=4.2, height=2.6, color="#7c3aed"),
+    Room(id="bedroomone", name="Quarto 1", x=0, y=3.0, width=3.2, depth=3.2, height=2.6, color="#2563eb"),
+    Room(id="bedroomonewardrobe", name="GR Quarto 1", x=3.2, y=3.0, width=1.8, depth=1.8, height=2.6, color="#475569"),
+    Room(id="bedroomtwo", name="Quarto 2", x=0, y=6.2, width=3.2, depth=3.0, height=2.6, color="#0891b2"),
+    Room(id="suite", name="Suite", x=6.6, y=4.2, width=3.8, depth=3.4, height=2.6, color="#9333ea"),
+    Room(id="suitewardrobe", name="GR Suite", x=10.4, y=4.2, width=1.8, depth=1.8, height=2.6, color="#64748b"),
+    Room(id="bathroomsuite", name="BWC Suite", x=10.4, y=6.0, width=1.8, depth=1.6, height=2.6, color="#0ea5e9"),
+    Room(id="bathroomsocial", name="BWC Social", x=5.0, y=3.0, width=1.6, depth=1.8, height=2.6, color="#0284c7"),
+    Room(id="circulation", name="Circulação", x=5.0, y=4.8, width=1.6, depth=3.2, height=2.6, color="#6b7280"),
+]
+
+APP_CONFIG = AppConfig(
+    flask_server_url="http://192.168.1.173:8081",
+    flask_api_key="",
+    house_name="Minha Casa",
+    language="pt-PT",
+    voice_assistant_enabled=False,
+    alexa_enabled=False,
+)
+
+ALERT_EVENTS: list[AlertEvent] = []
+
+
+def default_state_for_type(device_type: str) -> dict[str, Any]:
+    if device_type == "light":
+        return {"on": False, "brightness": 100}
+    if device_type == "blind":
+        return {"position": 0}
+    if device_type == "outlet":
+        return {"on": False, "power_w": 0}
+    if device_type == "climate":
+        return {"current_c": 21, "target_c": 22, "mode": "cool", "fan_speed": "auto"}
+    if device_type == "sensor":
+        return {"temperature_c": 21, "humidity_pct": 50}
+    return {"on": False}
+
+
+def _normalize_room_name(value: str | None) -> str:
+    return (value or "").strip().lower().replace("  ", " ")
+
+
+def _room_alias_to_project_id(room_name: str | None) -> str | None:
+    aliases = {
+        "varanda": "balcony",
+        "cozinha": "kitchen",
+        "sala": "livingroom",
+        "quarto 1": "bedroomone",
+        "gr quarto 1": "bedroomonewardrobe",
+        "quarto 2": "bedroomtwo",
+        "suite": "suite",
+        "suíte": "suite",
+        "gr suite": "suitewardrobe",
+        "gr suíte": "suitewardrobe",
+        "bwc suite": "bathroomsuite",
+        "bwc suíte": "bathroomsuite",
+        "bwc social": "bathroomsocial",
+        "circulação": "circulation",
+        "circulacao": "circulation",
+    }
+    return aliases.get(_normalize_room_name(room_name))
+
+
+def _project_room_exists(room_id: str) -> bool:
+    return any(r.id == room_id for r in ROOMS)
+
+
+def resolve_room_mapping(vendor: str, vendor_room_name: str | None) -> tuple[str | None, Literal["matched", "unmatched", "manual"]]:
+    if not vendor_room_name:
+        return None, "unmatched"
+    mappings = load_room_mappings()
+    normalized = _normalize_room_name(vendor_room_name)
+    for data in mappings.values():
+        if data.get("vendor") == vendor and _normalize_room_name(data.get("vendor_room_name")) == normalized:
+            return data.get("project_room_id"), data.get("match_mode", "manual")
+    auto_room = _room_alias_to_project_id(vendor_room_name)
+    if auto_room:
+        return auto_room, "matched"
+    return None, "unmatched"
+
+
+def map_legacy_device(device_id: str, raw: dict[str, Any]) -> Device:
+    legacy_type = raw.get("type", "plug")
+    device_type = "outlet" if legacy_type == "plug" else legacy_type
+    if device_type not in {"light", "blind", "outlet", "climate", "sensor"}:
+        device_type = "outlet"
+    raw_position = raw.get("position") or {"x": 0, "y": 0, "z": 0}
+    state = raw.get("state") or default_state_for_type(device_type)
+    vendor = raw.get("vendor", "tapo")
+    vendor_room_name = raw.get("vendor_room_name") or raw.get("room_name") or raw.get("room")
+    project_room_id = raw.get("project_room_id")
+    mapping_status = raw.get("mapping_status")
+    if project_room_id is None or mapping_status is None:
+        resolved_room, resolved_status = resolve_room_mapping(vendor, vendor_room_name)
+        project_room_id = project_room_id or resolved_room
+        mapping_status = mapping_status or resolved_status
+    room_id = project_room_id or raw.get("room_id") or "livingroom"
+    return Device(
+        id=device_id,
+        name=raw.get("name", device_id),
+        type=device_type,
+        vendor=vendor,
+        room_id=room_id,
+        state=state,
+        position=Position3D(
+            x=float(raw_position.get("x", 0)),
+            y=float(raw_position.get("y", 0)),
+            z=float(raw_position.get("z", 0)),
+        ),
+        online=bool(raw.get("online", False)),
+        created_at=raw.get("created_at", utc_now_iso()),
+        vendor_room_name=vendor_room_name,
+        project_room_id=project_room_id,
+        mapping_status=mapping_status or "matched",
+    )
+
+
+def device_to_storage(device: Device, raw_existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    base = raw_existing.copy() if raw_existing else {}
+    base.update(
+        {
+            "name": device.name,
+            "type": "plug" if device.type == "outlet" else device.type,
+            "vendor": device.vendor,
+            "room_id": device.room_id,
+            "vendor_room_name": device.vendor_room_name,
+            "project_room_id": device.project_room_id,
+            "mapping_status": device.mapping_status,
+            "state": device.state,
+            "position": device.position.model_dump(),
+            "online": device.online,
+            "created_at": device.created_at,
+            "alerts": base.get("alerts", []),
+        }
+    )
+    return base
+
+
+def list_devices_from_storage() -> list[Device]:
+    return [map_legacy_device(device_id, raw) for device_id, raw in load_devices_raw().items()]
+
+
+def get_device_from_storage(device_id: str) -> Device:
+    raw = load_devices_raw().get(device_id)
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return map_legacy_device(device_id, raw)
+
+
+def map_legacy_alert(device_id: str, raw: dict[str, Any]) -> AlertRule:
+    legacy_type = raw.get("type", "acima")
+    operator_map = {"abaixo": "<", "acima": ">", "igual": "="}
+    op = operator_map.get(legacy_type, raw.get("operator", ">"))
+    value = float(raw.get("value", raw.get("threshold", 0)))
+    return AlertRule(
+        id=raw.get("id", ""),
+        device_id=device_id,
+        name=raw.get("name", f"Regra {legacy_type} de {value}W"),
+        metric=raw.get("metric", "power"),
+        operator=op,
+        threshold=value,
+        enabled=bool(raw.get("enabled", True)),
+        notify=bool(raw.get("notify", True)),
+        created_at=raw.get("created_at", utc_now_iso()),
+    )
+
+
+def serialize_alert_rule_for_storage(rule: AlertRule) -> dict[str, Any]:
+    reverse_operator_map = {"<": "abaixo", ">": "acima", "=": "igual"}
+    return {
+        "id": rule.id,
+        "name": rule.name,
+        "metric": rule.metric,
+        "operator": rule.operator,
+        "type": reverse_operator_map.get(rule.operator, "acima"),
+        "value": rule.threshold,
+        "threshold": rule.threshold,
+        "enabled": rule.enabled,
+        "notify": rule.notify,
+        "created_at": rule.created_at,
+    }
+
+
+def list_alert_rules_from_storage(device_id: str | None = None) -> list[AlertRule]:
+    items: list[AlertRule] = []
+    for ip, raw in load_devices_raw().items():
+        if device_id and ip != device_id:
+            continue
+        for alert in raw.get("alerts", []):
+            items.append(map_legacy_alert(ip, alert))
+    return items
+
+
+def get_hourly_consumption(device_id: str, hours: int) -> ConsumptionResponse:
+    now = datetime.now()
+    labels = [(now - timedelta(hours=i)).strftime("%H:00") for i in range(hours - 1, -1, -1)]
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """SELECT strftime('%H:00', timestamp) AS bucket, AVG(watts) AS avg_watts
+               FROM consumos
+               WHERE ip = ?
+                 AND timestamp >= datetime('now', ?)
+               GROUP BY bucket
+               ORDER BY bucket""",
+            (device_id, f"-{hours} hours"),
+        ).fetchall()
+        total_row = conn.execute(
+            """SELECT MAX(kwh) AS total_kwh
+               FROM consumos
+               WHERE ip = ?
+                 AND timestamp >= datetime('now', ?)""",
+            (device_id, f"-{hours} hours"),
+        ).fetchone()
+    data_map = {row["bucket"]: float(row["avg_watts"] or 0.0) for row in rows}
+    points = [ConsumptionPoint(t=label, power_w=data_map.get(label, 0.0)) for label in labels]
+    total_kwh = float(total_row["total_kwh"] or 0.0) if total_row else 0.0
+    return ConsumptionResponse(device_id=device_id, hours=hours, points=points, total_kwh=total_kwh)
+
+
+@api_router.get("/health")
+async def health() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "database": ACTIVE_DB_PATH,
+        "devices_file": ACTIVE_DEVICES_PATH,
+        "room_mappings_file": ROOM_MAPPINGS_FILE,
+    }
+
+@api_router.get("/rooms", response_model=list[Room])
+async def list_rooms() -> list[Room]:
+    return ROOMS
+
+
+@api_router.get("/project-rooms", response_model=list[Room])
+async def list_project_rooms() -> list[Room]:
+    return ROOMS
+
+
+@api_router.get("/room-mappings", response_model=list[RoomMapping])
+async def list_room_mappings() -> list[RoomMapping]:
+    return [RoomMapping(**v) for v in load_room_mappings().values()]
+
+
+@api_router.post("/room-mappings", response_model=RoomMapping)
+async def create_room_mapping(body: RoomMappingCreate) -> RoomMapping:
+    if not _project_room_exists(body.project_room_id):
+        raise HTTPException(status_code=400, detail="project_room_id inválido")
+    mappings = load_room_mappings()
+    mapping = RoomMapping(
+        id=f"{body.vendor}:{body.vendor_room_name.strip().lower().replace(' ', '_')}",
+        vendor=body.vendor,
+        vendor_room_name=body.vendor_room_name,
+        project_room_id=body.project_room_id,
+        match_mode=body.match_mode,
+        updated_at=utc_now_iso(),
+    )
+    mappings[mapping.id] = mapping.model_dump()
+    save_room_mappings(mappings)
+    return mapping
+
+
+@api_router.delete("/room-mappings/{mapping_id}")
+async def delete_room_mapping(mapping_id: str) -> dict[str, bool]:
+    mappings = load_room_mappings()
+    if mapping_id not in mappings:
+        raise HTTPException(status_code=404, detail="Room mapping not found")
+    del mappings[mapping_id]
+    save_room_mappings(mappings)
+    return {"ok": True}
+
+
+@api_router.get("/devices", response_model=list[Device])
+async def list_devices() -> list[Device]:
+    return list_devices_from_storage()
+
+
+@api_router.get("/devices/{device_id}", response_model=Device)
+async def get_device(device_id: str) -> Device:
+    return get_device_from_storage(device_id)
+
+
+@api_router.post("/devices", response_model=Device)
+async def create_device(body: DeviceCreate) -> Device:
+    devices_data = load_devices_raw()
+    base_id = body.name.strip().lower().replace(" ", "_")
+    device_id = base_id or f"device_{int(datetime.utcnow().timestamp())}"
+    if device_id in devices_data:
+        device_id = f"{device_id}_{int(datetime.utcnow().timestamp())}"
+    device = Device(
+        id=device_id,
+        name=body.name,
+        type=body.type,
+        vendor=body.vendor,
+        room_id=body.project_room_id or body.room_id,
+        state=body.state or default_state_for_type(body.type),
+        position=body.position or Position3D(x=0, y=0, z=0),
+        online=False,
+        created_at=utc_now_iso(),
+        vendor_room_name=body.vendor_room_name,
+        project_room_id=body.project_room_id,
+        mapping_status=body.mapping_status,
+    )
+    devices_data[device_id] = device_to_storage(device)
+    save_devices_raw(devices_data)
+    return device
+
+
+@api_router.patch("/devices/{device_id}", response_model=Device)
+async def update_device(device_id: str, body: DevicePatch) -> Device:
+    devices_data = load_devices_raw()
+    raw = devices_data.get(device_id)
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    stored = map_legacy_device(device_id, raw)
+    updated = stored.model_copy(update=body.model_dump(exclude_unset=True))
+    if updated.project_room_id:
+        updated.room_id = updated.project_room_id
+    devices_data[device_id] = device_to_storage(updated, raw)
+    save_devices_raw(devices_data)
+    return updated
+
+
+@api_router.delete("/devices/{device_id}")
+async def delete_device(device_id: str) -> dict[str, bool]:
+    devices_data = load_devices_raw()
+    if device_id not in devices_data:
+        raise HTTPException(status_code=404, detail="Device not found")
+    del devices_data[device_id]
+    save_devices_raw(devices_data)
+    return {"ok": True}
+
+
+@api_router.post("/devices/{device_id}/toggle", response_model=Device)
+async def toggle_device(device_id: str) -> Device:
+    devices_data = load_devices_raw()
+    raw = devices_data.get(device_id)
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    device = map_legacy_device(device_id, raw)
+    state = dict(device.state)
+    if device.type == "blind":
+        state["position"] = 0 if (state.get("position", 0) > 0) else 100
+    elif device.type != "sensor":
+        state["on"] = not bool(state.get("on", False))
+    if device.type == "outlet":
+        state["power_w"] = 1200 if state.get("on") else 0
+    updated = device.model_copy(update={"state": state})
+    devices_data[device_id] = device_to_storage(updated, raw)
+    save_devices_raw(devices_data)
+    return updated
+
+
+@api_router.get("/devices/{device_id}/consumption", response_model=ConsumptionResponse)
+async def get_device_consumption(device_id: str, hours: int = Query(default=24, ge=1, le=168)) -> ConsumptionResponse:
+    devices_data = load_devices_raw()
+    if device_id not in devices_data:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return get_hourly_consumption(device_id, hours)
+
+
+@api_router.get("/alert-rules", response_model=list[AlertRule])
+async def list_alert_rules(device_id: str | None = Query(default=None)) -> list[AlertRule]:
+    return list_alert_rules_from_storage(device_id)
+
+
+@api_router.post("/alert-rules", response_model=AlertRule)
+async def create_alert_rule(body: AlertRuleCreate) -> AlertRule:
+    devices_data = load_devices_raw()
+    raw = devices_data.get(body.device_id)
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    rule = AlertRule(
+        id=f"rule_{int(datetime.utcnow().timestamp() * 1000)}",
+        device_id=body.device_id,
+        name=body.name,
+        metric=body.metric,
+        operator=body.operator,
+        threshold=body.threshold,
+        enabled=body.enabled,
+        notify=body.notify,
+        created_at=utc_now_iso(),
+    )
+    alerts = list(raw.get("alerts", []))
+    alerts.append(serialize_alert_rule_for_storage(rule))
+    raw["alerts"] = alerts
+    devices_data[body.device_id] = raw
+    save_devices_raw(devices_data)
+    return rule
+
+
+@api_router.delete("/alert-rules/{rule_id}")
+async def delete_alert_rule(rule_id: str) -> dict[str, bool]:
+    devices_data = load_devices_raw()
+    removed = False
+    for device_id, raw in devices_data.items():
+        alerts = raw.get("alerts", [])
+        new_alerts = [a for a in alerts if a.get("id") != rule_id]
+        if len(new_alerts) != len(alerts):
+            raw["alerts"] = new_alerts
+            devices_data[device_id] = raw
+            removed = True
+    if not removed:
+        raise HTTPException(status_code=404, detail="Alert rule not found")
+    save_devices_raw(devices_data)
+    return {"ok": True}
+
+
+@api_router.get("/alerts", response_model=list[AlertEvent])
+async def list_alerts() -> list[AlertEvent]:
+    return ALERT_EVENTS
+
+
+@api_router.get("/config", response_model=AppConfig)
+async def get_config() -> AppConfig:
+    return APP_CONFIG
+
+
+@api_router.put("/config", response_model=AppConfig)
+async def update_config(body: AppConfig) -> AppConfig:
+    global APP_CONFIG
+    APP_CONFIG = AppConfig(**body.model_dump())
+    return APP_CONFIG
+
+
+@api_router.get("/summary", response_model=Summary)
+async def get_summary() -> Summary:
+    devices = list_devices_from_storage()
+    alerts = ALERT_EVENTS
+    lights_on = 0
+    total_power_w = 0.0
+    online_count = 0
+    temps: list[float] = []
+    mapped_devices_count = 0
+    unmapped_devices_count = 0
+    for d in devices:
+        if d.online:
+            online_count += 1
+        if d.type == "light" and d.state.get("on"):
+            lights_on += 1
+        if d.type == "outlet":
+            total_power_w += float(d.state.get("power_w") or 0)
+        if d.state.get("current_c") is not None:
+            temps.append(float(d.state["current_c"]))
+        if d.state.get("temperature_c") is not None:
+            temps.append(float(d.state["temperature_c"]))
+        if d.project_room_id:
+            mapped_devices_count += 1
+        else:
+            unmapped_devices_count += 1
+    avg_temp = round(sum(temps) / len(temps), 1) if temps else None
+    alerts_unacked = len([a for a in alerts if not a.acknowledged])
+    return Summary(
+        rooms_count=len(ROOMS),
+        devices_count=len(devices),
+        mapped_devices_count=mapped_devices_count,
+        unmapped_devices_count=unmapped_devices_count,
+        online_count=online_count,
+        lights_on=lights_on,
+        total_power_w=total_power_w,
+        avg_temperature_c=avg_temp,
+        alerts_unacked=alerts_unacked,
+    )
+
+
+def _series(hours: int):
+    points = []
+    start = datetime.now(timezone.utc) - timedelta(hours=hours)
+    for i in range(hours):
+        t = start + timedelta(hours=i)
+        power = 900 + 220 * math.sin(i / 3.0) + 90 * math.cos(i / 5.0)
+        points.append({"t": t.strftime("%H:00"), "power_w": round(max(0, power), 1)})
+    total_kwh = round(sum(p["power_w"] for p in points) / 1000.0, 3)
+    return points, total_kwh
+
+
+@api_router.get("/devices/{device_id}/consumption", response_model=ConsumptionResponse)
+async def device_consumption(device_id: str, hours: int = Query(default=24, ge=1, le=720)) -> ConsumptionResponse:
+    points, total_kwh = _series(hours)
+    return ConsumptionResponse(
+        device_id=device_id,
+        hours=hours,
+        points=[ConsumptionPoint(**p) for p in points],
+        total_kwh=total_kwh,
+    )
+
+
+@api_router.get("/alerts", response_model=list[AlertEvent])
+async def alerts_list() -> list[AlertEvent]:
+    return [
+        AlertEvent(
+            id="alert_1",
+            device_id="192.168.1.216",
+            rule_id=None,
+            title="Potência elevada",
+            message="O termoacumulador está acima do consumo esperado.",
+            severity="warning",
+            acknowledged=False,
+            created_at=utc_now_iso(),
+        )
+    ]
+
+
+@api_router.post("/alerts/{alert_id}/ack")
+async def ack_alert(alert_id: str) -> dict[str, bool | str]:
+    return {"ok": True, "id": alert_id}
+
+
+app.include_router(api_router)
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    init_db()
+    logger.info("FastAPI server started")
+    logger.info("SQLite DB: %s", ACTIVE_DB_PATH)
+    logger.info("Devices file: %s", ACTIVE_DEVICES_PATH)
+    logger.info("Room mappings file: %s", ROOM_MAPPINGS_FILE)
+
+
+if __name__ == "__main__":
+    uvicorn.run("server:app", host="0.0.0.0", port=PORT_OLD, reload=True)

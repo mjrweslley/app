@@ -1,0 +1,10 @@
+{
+  "tapo:sala": {
+    "id": "tapo:sala",
+    "vendor": "tapo",
+    "vendor_room_name": "Sala",
+    "project_room_id": "livingroom",
+    "match_mode": "manual",
+    "updated_at": "2026-06-03T21:26:00Z"
+  }
+}

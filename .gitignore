@@ -1,0 +1,26 @@
+# Secrets and Tokens
+.env
+*.pem
+*.key
+*.token
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs and Temps
+*.log
+__pycache__/
+*.pyc
+venv/
+.DS_Store
+
+# fallback for extra sec
+.env.*
+
+# Node / JS
+node_modules/
+
+# VS Code
+.vscode/
