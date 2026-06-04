@@ -174,7 +174,7 @@ def save_json_file(path: str | Path, data: Any) -> None:
 
 def load_devices_raw() -> dict:
     # Garante que o ficheiro devolve sempre o formato {"devices": []}
-    data = load_json_file(DEVICES_FILE, {"devices": []})
+    return load_json_file(ACTIVE_DEVICES_PATH, {"devices": []})
     
     # Prevenção: Se ler um formato antigo (dicionário por IPs), converte na hora
     if isinstance(data, dict) and "devices" not in data:
@@ -188,7 +188,7 @@ def load_devices_raw() -> dict:
     return data
 
 def save_devices_raw(data: dict) -> None:
-    save_json_file(DEVICES_FILE, data)
+    save_json_file(ACTIVE_DEVICES_PATH, data)
 
 # ── MODELOS PYDANTIC ──
 class Position3D(BaseModel):
@@ -240,7 +240,18 @@ def device_to_storage(device: Device, raw_existing: dict[str, Any] | None = None
 # ── ROTAS DE DISPOSITIVOS ──
 @api_router.get("/devices", response_model=list[Device])
 async def list_devices() -> list[Device]:
-    return [map_legacy_device(d_id, raw) for d_id, raw in load_devices_raw().items()]
+    try:
+        data = load_devices_raw()
+        # Se data não for um dict ou não tiver a chave, devolve lista vazia em vez de crashar
+        if not isinstance(data, dict) or "devices" not in data:
+            return []
+        
+        devices_list = data["devices"]
+        # Retorna apenas o que for um dicionário válido
+        return [Device(**d) for d in devices_list if isinstance(d, dict)]
+    except Exception as e:
+        logger.error(f"Erro ao listar dispositivos: {e}")
+        return [] # Retorna vazio em vez de deixar o frontend preso
 
 @api_router.post("/devices", response_model=Device)
 async def create_device(body: DeviceCreate) -> Device:
@@ -248,8 +259,8 @@ async def create_device(body: DeviceCreate) -> Device:
     devices_list = data.get("devices", [])
     ip = body.ip
 
-    # Verifica se a tomada já existe no array
-    if any(d.get("vendor_device_id") == ip for d in devices_list):
+    # 1. Verifica duplicados
+    if any(d.get("vendor_device_id") == body.ip for d in devices_list):
         raise HTTPException(status_code=400, detail="Dispositivo já existe.")
 
     try:
