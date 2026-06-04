@@ -32,8 +32,10 @@ export function AddDeviceModal({ visible, onClose }: Props) {
       
       setIp('')
       onClose()
-    } catch (error) {
-      Alert.alert('Erro', 'Não foi possível contactar o Backend ou a Tomada.')
+    } catch (error: any) {
+      // 3. AQUI ESTÁ A ALTERAÇÃO: Mostrar o erro exato devolvido pelo backend
+      const errorMessage = error.response?.data?.detail || 'Não foi possível contactar o Backend ou a Tomada.';
+      Alert.alert('Erro ao Adicionar', errorMessage);
     } finally {
       setLoading(false)
     }

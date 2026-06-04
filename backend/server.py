@@ -234,16 +234,23 @@ def device_to_storage(device: Device, raw_existing: dict[str, Any] | None = None
 async def list_devices() -> list[Device]:
     try:
         data = load_devices_raw()
-        # Se data não for um dict ou não tiver a chave, devolve lista vazia em vez de crashar
         if not isinstance(data, dict) or "devices" not in data:
             return []
         
         devices_list = data["devices"]
-        # Retorna apenas o que for um dicionário válido
-        return [Device(**d) for d in devices_list if isinstance(d, dict)]
+        valid_devices = []
+        
+        for d in devices_list:
+            if isinstance(d, dict):
+                # Conversão on-the-fly para o Pydantic não crashar
+                if d.get("type") == "plug":
+                    d["type"] = "outlet"
+                valid_devices.append(Device(**d))
+                
+        return valid_devices
     except Exception as e:
         logger.error(f"Erro ao listar dispositivos: {e}")
-        return [] # Retorna vazio em vez de deixar o frontend preso
+        return []
 
 @api_router.post("/devices", response_model=Device)
 async def create_device(body: DeviceCreate) -> Device:
@@ -332,31 +339,39 @@ async def delete_device(device_id: str) -> dict[str, bool]:
 # ── TRABALHADOR INVISÍVEL ──
 async def background_worker() -> None:
     while True:
-        devices_data = load_devices_raw()
-        for ip in devices_data.keys():
+        data = load_devices_raw()
+        devices_list = data.get("devices", [])
+        
+        for device in devices_list:
+            ip = device.get("vendor_device_id")
+            if not ip: continue
+            
             try:
-                usage = tapo_request_klap(ip, TAPO_EMAIL, TAPO_PASS, "get_energy_usage")
-                info = tapo_request_klap(ip, TAPO_EMAIL, TAPO_PASS, "get_device_info")
+                # O asyncio.to_thread IMPEDE que o servidor FastAPI congele!
+                usage = await asyncio.to_thread(tapo_request_klap, ip, TAPO_EMAIL, TAPO_PASS, "get_energy_usage")
+                info = await asyncio.to_thread(tapo_request_klap, ip, TAPO_EMAIL, TAPO_PASS, "get_device_info")
 
                 watts = usage.get("current_power", 0) / 1000.0
                 kwh = usage.get("today_energy", 0) / 1000.0
                 device_on = info.get("device_on", False)
 
+                # Atualiza os estados no JSON dinâmico
+                device["online"] = True
+                device["state"]["on"] = device_on
+                device["state"]["power_w"] = watts
+                device["state"]["energy_kwh"] = kwh
+
+                # Guarda histórico
                 with get_db_connection() as conn:
                     conn.execute("INSERT INTO consumos (ip, timestamp, watts, kwh) VALUES (?, datetime('now'), ?, ?)", (ip, watts, kwh))
-                    conn.execute("DELETE FROM consumos WHERE timestamp < datetime('now', '-180 days')")
                     conn.commit()
 
-                devices_data[ip]["online"] = True
-                if "state" not in devices_data[ip]: devices_data[ip]["state"] = {}
-                devices_data[ip]["state"]["on"] = device_on
-                devices_data[ip]["state"]["power_w"] = watts
-                devices_data[ip]["state"]["energy_kwh"] = kwh
-
             except Exception as e:
-                devices_data[ip]["online"] = False
+                device["online"] = False
 
-        save_devices_raw(devices_data)
+        data["devices"] = devices_list
+        save_devices_raw(data)
+        
         await asyncio.sleep(60)
 
 app.include_router(api_router)
