@@ -11,9 +11,9 @@
       "project_room_id": "Unknown",
       "mapping_status": "unmatched",
       "state": {
-        "on": null,
-        "power_w": null,
-        "energy_kwh": null
+        "on": true,
+        "power_w": 1891.797,
+        "energy_kwh": 8.828
       },
       "position": {
         "x": 0,

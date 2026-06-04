@@ -275,20 +275,29 @@ async def create_device(body: DeviceCreate) -> Device:
         device_id = f"plug_{ip.replace('.', '_')}"
 
         # Nova estrutura padronizada (Exatamente igual ao plugs.py)
+        # Nova estrutura padronizada e forçada a "Unmatched"
         new_device_raw = {
             "id": device_id,
             "vendor_device_id": ip,
             "name": name,
-            "type": body.type,
-            "vendor": body.vendor,
-            "room_id": body.project_room_id or body.room_id or "Unknown",
-            "state": default_state_for_type(body.type),
-            "position": (body.position or Position3D(x=0, y=0, z=0)).model_dump(),
+            "type": "outlet",  # Mantido "outlet" para o Pydantic não rejeitar o dispositivo
+            "vendor": "tapo",
+            "room_id": "Unknown",
+            "vendor_room_name": "Unknown",
+            "project_room_id": "Unknown",
+            "mapping_status": "unmatched",
+            "state": {
+                "on": None,
+                "power_w": None,
+                "energy_kwh": None
+            },
+            "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
             "online": True,
-            "created_at": utc_now_iso(),
-            "vendor_room_name": body.vendor_room_name,
-            "project_room_id": body.project_room_id,
-            "mapping_status": body.mapping_status,
+            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         }
 
         # Adiciona ao Array e guarda apenas no backend (nova localização)
