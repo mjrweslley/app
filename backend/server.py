@@ -336,6 +336,47 @@ async def delete_device(device_id: str) -> dict[str, bool]:
         save_devices_raw(devices_data)
     return {"ok": True}
 
+# ── ROTAS PARA O DASHBOARD (SUMMARY E ROOMS) ──
+
+@api_router.get("/summary")
+async def get_summary() -> dict:
+    try:
+        data = load_devices_raw()
+        devices = data.get("devices", []) if isinstance(data, dict) else []
+        
+        # Calcula o total de watts apenas se a chave "state" e "power_w" existirem
+        total_power = sum(d.get("state", {}).get("power_w", 0) for d in devices if isinstance(d, dict) and d.get("state"))
+        
+        return {
+            "rooms_count": 0,
+            "devices_count": len(devices),
+            "mapped_devices_count": len([d for d in devices if d.get("mapping_status") == "matched"]),
+            "unmapped_devices_count": len([d for d in devices if d.get("mapping_status") != "matched"]),
+            "online_count": len([d for d in devices if d.get("online")]),
+            "lights_on": 0,
+            "total_power_w": total_power,
+            "avg_temperature_c": None,
+            "alerts_unacked": 0
+        }
+    except Exception as e:
+        logger.error(f"Erro no summary: {e}")
+        # Retorno de segurança para o frontend não encravar
+        return {
+            "rooms_count": 0, "devices_count": 0, "mapped_devices_count": 0,
+            "unmapped_devices_count": 0, "online_count": 0, "lights_on": 0,
+            "total_power_w": 0, "avg_temperature_c": None, "alerts_unacked": 0
+        }
+
+@api_router.get("/project-rooms")
+async def list_project_rooms() -> list:
+    # Rota temporária para o frontend não dar 404
+    return []
+
+@api_router.get("/room-mappings")
+async def list_room_mappings() -> list:
+    # Rota temporária para o frontend não dar 404
+    return []
+
 # ── TRABALHADOR INVISÍVEL ──
 async def background_worker() -> None:
     while True:
