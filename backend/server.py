@@ -415,6 +415,11 @@ async def background_worker() -> None:
         
         await asyncio.sleep(60)
 
+# -- CONFIRMAR HEATH --
+@app.get("/")
+async def root():
+    return {"status": "online", "message": "SmartHome API a correr perfeitamente!"}
+
 app.include_router(api_router)
 
 @app.on_event("startup")
