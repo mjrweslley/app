@@ -1,7 +1,3 @@
-# Recommended Space Structure
-
-For your Space, I would create these threads/folders in this exact order:
-
 1. **PRD & Vision**
 
    * Product vision
@@ -110,10 +106,3 @@ For your Space, I would create these threads/folders in this exact order:
     * Integration tests
     * Tablet tests
     * Long-duration soak testing
-
-With the two skills together:
-
-* **smart-home-control-center-architect** → architecture, APIs, backend, data models, scalability.
-* **smart-home-ui-designer** → UX, design system, React Native screens, Three.js visualizations, animations, PT-PT interface copy.
-
-Perplexity can then automatically combine both skills when you ask things like: *"Design the device details screen and generate the React Native implementation"* or *"Create the 3D house dashboard architecture and UI."*
