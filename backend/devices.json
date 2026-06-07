@@ -12,8 +12,8 @@
       "mapping_status": "unmatched",
       "state": {
         "on": true,
-        "power_w": 0.0,
-        "energy_kwh": 2.743
+        "power_w": 1917.245,
+        "energy_kwh": 2.885
       },
       "position": {
         "x": 0,
