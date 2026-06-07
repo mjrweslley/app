@@ -28,12 +28,8 @@ export default function SettingsScreen() {
 
   const { data: summary } = useQuery<SummaryResponse>({
     queryKey: ['summary'],
-<<<<<<< HEAD
-    queryFn: () => apiClient.get<Record<string, unknown>>('/api/summary').then((r) => r.data),
-=======
     queryFn: () =>
       apiClient.get<SummaryResponse>('/api/summary').then((r) => r.data),
->>>>>>> 36be6ecba654c9cfb1f3f13cf5afbf6335c6ffb7
     staleTime: 30_000,
   });
 
