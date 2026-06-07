@@ -8,6 +8,14 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api';
 import { useSettingsStore } from '../stores/settingsStore';
 
+// Tipo local para o resumo retornado pelo servidor
+interface SummaryResponse {
+  user?: string;
+  devices_on?: number;
+  total_devices?: number;
+  [key: string]: unknown;
+}
+
 export default function SettingsScreen() {
   const {
     notificationsEnabled,
@@ -18,9 +26,14 @@ export default function SettingsScreen() {
 
   const [thresholdInput, setThresholdInput] = useState(String(alertThresholdW));
 
-  const { data: summary } = useQuery({
+  const { data: summary } = useQuery<SummaryResponse>({
     queryKey: ['summary'],
+<<<<<<< HEAD
     queryFn: () => apiClient.get<Record<string, unknown>>('/api/summary').then((r) => r.data),
+=======
+    queryFn: () =>
+      apiClient.get<SummaryResponse>('/api/summary').then((r) => r.data),
+>>>>>>> 36be6ecba654c9cfb1f3f13cf5afbf6335c6ffb7
     staleTime: 30_000,
   });
 
@@ -86,7 +99,9 @@ export default function SettingsScreen() {
           <View style={styles.row}>
             <View style={styles.rowContent}>
               <Text style={styles.rowLabel}>Limite de consumo (W)</Text>
-              <Text style={styles.rowSubtitle}>Alerta quando um dispositivo exceder este valor</Text>
+              <Text style={styles.rowSubtitle}>
+                Alerta quando um dispositivo exceder este valor
+              </Text>
             </View>
             <View style={styles.inputWrapper}>
               <TextInput
@@ -132,7 +147,9 @@ function ServerSettings() {
   async function testConnection() {
     setStatus('testing');
     try {
-      const res = await fetch(`${input}/api/summary`, { signal: AbortSignal.timeout(3000) });
+      const res = await fetch(`${input}/api/summary`, {
+        signal: AbortSignal.timeout(3000),
+      });
       setStatus(res.ok ? 'ok' : 'error');
     } catch {
       setStatus('error');
@@ -144,8 +161,18 @@ function ServerSettings() {
     Alert.alert('Guardado', `Servidor: ${input}`);
   }
 
-  const statusColor = { idle: '#797876', testing: '#d19900', ok: '#6daa45', error: '#dd6974' };
-  const statusLabel = { idle: '—', testing: 'A testar...', ok: 'Online', error: 'Sem resposta' };
+  const statusColor: Record<typeof status, string> = {
+    idle: '#797876',
+    testing: '#d19900',
+    ok: '#6daa45',
+    error: '#dd6974',
+  };
+  const statusLabel: Record<typeof status, string> = {
+    idle: '—',
+    testing: 'A testar...',
+    ok: 'Online',
+    error: 'Sem resposta',
+  };
 
   return (
     <>
