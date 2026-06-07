@@ -27,7 +27,7 @@ DOTENV_PATH = ROOT_DIR / ".env"
 load_dotenv(DOTENV_PATH)
 
 REQUIRED_ENV_VARS = [
-    "DB_PATH_NEW", "DB_PATH_OLD", "DEVICES_FILE", "DEVICES_OLD",
+    "DB_PATH", "DEVICES_FILE",
     "PORT_OLD", "PORT_BACKEND", "PORT_FRONTEND", "TAPO_EMAIL", "TAPO_PASS"
 ]
 
@@ -36,8 +36,8 @@ if missing_envs:
     # Apenas log de aviso, não cracha o servidor se faltar algo em dev
     print(f"Aviso: Faltam variáveis de ambiente no .env: {', '.join(missing_envs)}")
 
-DB_PATH = os.environ.get("DB_PATH", "/home/mjrweslley/app/backend/history.db")
-DEVICES_FILE = os.environ.get("DEVICES_FILE", "/home/mjrweslley/app/backend/devices.json")
+DB_PATH = "/home/mjrweslley/app/backend/history.db"
+DEVICES_FILE = "/home/mjrweslley/app/backend/devices.json"
 PORT_BACKEND = int(os.environ.get("PORT_BACKEND", 8081))
 TAPO_EMAIL = os.environ.get("TAPO_EMAIL", "")
 TAPO_PASS = os.environ.get("TAPO_PASS", "")
@@ -234,24 +234,26 @@ def device_to_storage(device: Device, raw_existing: dict[str, Any] | None = None
 async def list_devices() -> list:
     try:
         data = load_devices_raw()
-        devices = data.get("devices", [])
+        # O seu plugs.py antigo pode guardar num formato diferente, ajustamos aqui:
+        devices = data if isinstance(data, list) else data.get("devices", [])
         
-        # Limpa e formata os dados "on the fly" antes de enviar para o Frontend
         clean_devices = []
         for d in devices:
             if not isinstance(d, dict): continue
             
-            # Se for do tipo antigo "plug", força para "outlet" para não avariar o frontend
-            if d.get("type") == "plug": d["type"] = "outlet"
-            
-            # Garante que as chaves de estado existem
-            if "state" not in d: d["state"] = {"on": False, "power_w": 0, "energy_kwh": 0}
-            
+            # Adiciona os campos novos que o plugs.py antigo não tem, mas o frontend exige
+            if "type" not in d or d["type"] == "plug": 
+                d["type"] = "outlet"
+            if "room_id" not in d: 
+                d["room_id"] = "Unknown"
+            if "state" not in d: 
+                d["state"] = {"on": False, "power_w": 0, "energy_kwh": 0}
+                
             clean_devices.append(d)
             
         return clean_devices
     except Exception as e:
-        logger.error(f"Erro ao listar dispositivos: {e}")
+        logger.error(f"Erro ao listar: {e}")
         return []
 
 @api_router.post("/devices", response_model=Device)
