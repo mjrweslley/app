@@ -1,270 +1,183 @@
-import React, { useState } from 'react';
+// frontend/src/components/DeviceDetailSheet.tsx
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Modal,
-  ScrollView, ActivityIndicator, Dimensions
+  View, Text, StyleSheet, ScrollView,
+  TouchableOpacity, Modal, ActivityIndicator
 } from 'react-native';
-import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { devicesApi, type HistoryResponse } from '../api/devices';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '../lib/api';
+import { Device } from '../types';
+// Se usares Victory Native:
+// import { VictoryBar, VictoryChart, VictoryTheme, VictoryAxis } from 'victory-native';
 
-type ViewType = 'H' | 'D' | 'W' | 'M';
+type TabType = 'H' | 'D' | 'W' | 'M';
 
-const TAB_LABELS: { key: ViewType; label: string }[] = [
-  { key: 'H', label: 'Hora' },
-  { key: 'D', label: 'Dia' },
-  { key: 'W', label: 'Semana' },
-  { key: 'M', label: 'Mês' },
-];
-
-const CHART_HEIGHT = 120;
-const CHART_WIDTH = Dimensions.get('window').width - 80; // margem
-
-function BarChart({ labels, data }: HistoryResponse) {
-  if (!data || data.length === 0) {
-    return (
-      <View style={chartStyles.empty}>
-        <Text style={chartStyles.emptyText}>Sem dados para este período</Text>
-      </View>
-    );
-  }
-
-  const max = Math.max(...data, 0.001);
-  const barWidth = Math.max(8, (CHART_WIDTH / data.length) - 4);
-
-  return (
-    <View style={chartStyles.wrapper}>
-      {/* Barras */}
-      <View style={chartStyles.barsRow}>
-        {data.map((val, i) => {
-          const heightPct = val / max;
-          const barH = Math.max(2, heightPct * CHART_HEIGHT);
-          return (
-            <View key={i} style={[chartStyles.barContainer, { width: barWidth }]}>
-              <View
-                style={[
-                  chartStyles.bar,
-                  { height: barH, backgroundColor: '#4f98a3' }
-                ]}
-              />
-            </View>
-          );
-        })}
-      </View>
-      {/* Labels eixo X — mostrar só cada N para não sobrepor */}
-      <View style={chartStyles.labelsRow}>
-        {labels.map((lbl, i) => {
-          const step = Math.ceil(labels.length / 6);
-          if (i % step !== 0 && i !== labels.length - 1) return <View key={i} style={{ width: barWidth + 4 }} />;
-          return (
-            <Text key={i} style={[chartStyles.xLabel, { width: barWidth + 4 }]} numberOfLines={1}>
-              {lbl}
-            </Text>
-          );
-        })}
-      </View>
-    </View>
-  );
+interface HistoryData {
+  labels: string[];
+  data: number[];
 }
 
-const chartStyles = StyleSheet.create({
-  wrapper: { paddingVertical: 8 },
-  barsRow: {
-    height: CHART_HEIGHT,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 4,
-  },
-  barContainer: { alignItems: 'center', justifyContent: 'flex-end' },
-  bar: { borderRadius: 3, width: '100%' },
-  labelsRow: { flexDirection: 'row', marginTop: 6, gap: 4 },
-  xLabel: { color: '#797876', fontSize: 10, textAlign: 'center' },
-  empty: { height: CHART_HEIGHT, justifyContent: 'center', alignItems: 'center' },
-  emptyText: { color: '#5a5957', fontSize: 13 },
-});
+interface Props {
+  device: Device | null;
+  visible: boolean;
+  onClose: () => void;
+}
 
-// ─────────────────────────────────────────────
+export function DeviceDetailSheet({ device, visible, onClose }: Props) {
+  const [activeTab, setActiveTab] = useState<TabType>('H');
 
-export function DeviceDetailSheet({ device, onClose }: { device: any, onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<ViewType>('H');
-
-  const state = device.state || {};
-  const isOn = state.on;
-  const isOffline = !device.online;
-
-  // Fetch do histórico para o gráfico (como plug.html)
-  const { data: historyData, isFetching: historyLoading } = useQuery<HistoryResponse>({
-    queryKey: ['device-history', device.id, activeTab],
-    queryFn: () => devicesApi.history(device.id, activeTab),
-    enabled: !!device.id,
-    staleTime: 30000,
-    placeholderData: { labels: [], data: [] },
+  const { data: history, isLoading: historyLoading } = useQuery<HistoryData>({
+    queryKey: ['device-history', device?.id, activeTab],
+    queryFn: () =>
+      apiClient
+        .get(`/api/devices/${device?.id}/history/${activeTab}`)
+        .then(r => r.data),
+    enabled: !!device && visible,
+    staleTime: 30_000,
   });
 
-  const total = historyData?.data?.reduce((a, b) => a + b, 0) ?? 0;
+  const total = history?.data?.reduce((a, b) => a + b, 0) ?? 0;
 
-  const togglePower = async () => {
-    if (isOffline) return;
-    setLoading(true);
-    try {
-      await devicesApi.updateState(device.id, { on: !isOn });
-      queryClient.invalidateQueries({ queryKey: ['devices'] });
-    } catch {
-      // silent — o estado actualiza no próximo poll de 5s
-    } finally {
-      setLoading(false);
-    }
-  };
+  const tabs: { key: TabType; label: string }[] = [
+    { key: 'H', label: 'Hora' },
+    { key: 'D', label: 'Dia' },
+    { key: 'W', label: 'Semana' },
+    { key: 'M', label: 'Mês' },
+  ];
+
+  if (!device) return null;
 
   return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
       <View style={styles.container}>
-
-        {/* HEADER */}
+        {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title} numberOfLines={2}>{device.name}</Text>
-          <TouchableOpacity onPress={onClose} style={styles.backBtn}>
-            <Text style={styles.backText}>← Voltar</Text>
+          <View>
+            <Text style={styles.title}>{device.name}</Text>
+            <Text style={styles.subtitle}>{device.room}</Text>
+          </View>
+          <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+            <Text style={styles.closeTxt}>✕</Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.body}>
+        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+          {/* Estado actual */}
+          <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Estado</Text>
+              <Text style={[styles.statValue, { color: device.state ? '#4f98a3' : '#797876' }]}>
+                {device.state ? 'Ligado' : 'Desligado'}
+              </Text>
+            </View>
+            {device.power !== undefined && (
+              <View style={styles.statCard}>
+                <Text style={styles.statLabel}>Potência actual</Text>
+                <Text style={styles.statValue}>{device.power.toFixed(1)} W</Text>
+              </View>
+            )}
+            {device.energy !== undefined && (
+              <View style={styles.statCard}>
+                <Text style={styles.statLabel}>Acumulado hoje</Text>
+                <Text style={styles.statValue}>{device.energy.toFixed(3)} kWh</Text>
+              </View>
+            )}
+          </View>
 
-          {/* BOTÃO GIGANTE */}
-          <TouchableOpacity
-            style={[styles.bigButton, {
-              backgroundColor: isOffline ? '#393836' : (isOn ? '#4f98a3' : '#201f1d')
-            }]}
-            onPress={togglePower}
-            disabled={loading || isOffline}
-          >
-            {loading
-              ? <ActivityIndicator size="large" color="#fff" />
-              : <Text style={styles.bigButtonText}>
-                  {isOffline ? 'OFFLINE' : (isOn ? 'LIGADO' : 'DESLIGADO')}
+          {/* Tabs do gráfico */}
+          <View style={styles.tabRow}>
+            {tabs.map(t => (
+              <TouchableOpacity
+                key={t.key}
+                style={[styles.tab, activeTab === t.key && styles.tabActive]}
+                onPress={() => setActiveTab(t.key)}
+              >
+                <Text style={[styles.tabTxt, activeTab === t.key && styles.tabTxtActive]}>
+                  {t.label}
                 </Text>
-            }
-          </TouchableOpacity>
-
-          {/* ESTATÍSTICAS RÁPIDAS */}
-          <View style={styles.statsGrid}>
-            <View style={styles.statBox}>
-              <Text style={styles.statLabel}>Potência Atual</Text>
-              <Text style={styles.statValue}>{state.power_w?.toFixed(1) ?? '0'} W</Text>
-            </View>
-            <View style={styles.statBox}>
-              <Text style={styles.statLabel}>Consumo Hoje</Text>
-              <Text style={styles.statValue}>{state.energy_kwh?.toFixed(3) ?? '0'} kWh</Text>
-            </View>
-            <View style={styles.statBox}>
-              <Text style={styles.statLabel}>Tempo Ligado</Text>
-              <Text style={styles.statValue}>-- h</Text>
-            </View>
+              </TouchableOpacity>
+            ))}
           </View>
 
-          {/* GRÁFICO DE ENERGIA (como plug.html) */}
-          <View style={styles.chartSection}>
-            <Text style={styles.sectionTitle}>Consumo de Energia</Text>
-
-            {/* Tabs H / D / W / M */}
-            <View style={styles.tabRow}>
-              {TAB_LABELS.map(({ key, label }) => (
-                <TouchableOpacity
-                  key={key}
-                  style={[styles.tabBtn, activeTab === key && styles.tabBtnActive]}
-                  onPress={() => setActiveTab(key)}
-                >
-                  <Text style={[styles.tabText, activeTab === key && styles.tabTextActive]}>
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Área do gráfico */}
-            <View style={styles.chartArea}>
-              {historyLoading
-                ? <ActivityIndicator size="small" color="#4f98a3" style={{ height: CHART_HEIGHT }} />
-                : <BarChart labels={historyData?.labels ?? []} data={historyData?.data ?? []} />
-              }
-            </View>
-
-            {/* Total acumulado */}
-            <Text style={styles.totalText}>
-              Total acumulado: {total.toFixed(3)} kWh
-            </Text>
+          {/* Gráfico */}
+          <View style={styles.chartContainer}>
+            {historyLoading ? (
+              <ActivityIndicator color="#4f98a3" style={{ marginTop: 40 }} />
+            ) : history && history.data.length > 0 ? (
+              <>
+                {/* Implementação com barras simples (sem lib externa) */}
+                <SimpleBarChart labels={history.labels} data={history.data} />
+                <Text style={styles.totalText}>
+                  Total acumulado: {total.toFixed(2)} kWh
+                </Text>
+              </>
+            ) : (
+              <Text style={styles.emptyChart}>Sem dados para este período</Text>
+            )}
           </View>
-
-          {/* ALERTAS */}
-          <View style={styles.alertsContainer}>
-            <Text style={styles.sectionTitle}>Alertas Configurados</Text>
-            <TouchableOpacity style={styles.addAlertBtn}>
-              <Text style={styles.addAlertText}>+ Adicionar Novo Alerta</Text>
-            </TouchableOpacity>
-          </View>
-
         </ScrollView>
       </View>
     </Modal>
   );
 }
 
+/* Gráfico de barras simples em RN puro — substitui por VictoryNative se quiseres */
+function SimpleBarChart({ labels, data }: { labels: string[]; data: number[] }) {
+  const max = Math.max(...data, 0.001);
+  return (
+    <View style={chartStyles.container}>
+      <View style={chartStyles.bars}>
+        {data.map((val, i) => (
+          <View key={i} style={chartStyles.barWrapper}>
+            <View style={[chartStyles.bar, { height: `${(val / max) * 100}%` }]} />
+            <Text style={chartStyles.label} numberOfLines={1}>{labels[i]}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const chartStyles = StyleSheet.create({
+  container: { height: 180, paddingTop: 8 },
+  bars: { flex: 1, flexDirection: 'row', alignItems: 'flex-end', gap: 4, paddingBottom: 20 },
+  barWrapper: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' },
+  bar: { width: '70%', backgroundColor: '#4f98a3', borderRadius: 4, minHeight: 2 },
+  label: { fontSize: 9, color: '#797876', marginTop: 4, textAlign: 'center' },
+});
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#171614' },
   header: {
-    flexDirection: 'row-reverse',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderColor: '#393836'
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    padding: 20, paddingTop: 24, borderBottomWidth: 1, borderBottomColor: '#262523',
   },
-  title: { fontSize: 20, fontWeight: 'bold', color: '#cdccca', flex: 1, marginLeft: 12 },
-  backBtn: { padding: 8, backgroundColor: '#201f1d', borderRadius: 6 },
-  backText: { color: '#cdccca' },
-  body: { padding: 20, gap: 20 },
-
-  bigButton: {
-    height: 120, borderRadius: 12,
-    justifyContent: 'center', alignItems: 'center',
-    borderWidth: 1, borderColor: '#393836'
+  title: { fontSize: 20, fontWeight: '700', color: '#cdccca' },
+  subtitle: { fontSize: 13, color: '#797876', marginTop: 2 },
+  closeBtn: { padding: 8 },
+  closeTxt: { fontSize: 16, color: '#797876' },
+  scroll: { flex: 1 },
+  statsRow: { flexDirection: 'row', gap: 12, padding: 20, paddingBottom: 0 },
+  statCard: {
+    flex: 1, backgroundColor: '#1c1b19', borderRadius: 12,
+    padding: 14, borderWidth: 1, borderColor: '#262523',
   },
-  bigButtonText: { fontSize: 28, fontWeight: 'bold', color: '#fff' },
-
-  statsGrid: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
-  statBox: {
-    flex: 1, backgroundColor: '#1c1b19', padding: 15,
-    borderRadius: 8, borderWidth: 1, borderColor: '#393836', alignItems: 'center'
+  statLabel: { fontSize: 11, color: '#5a5957', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  statValue: { fontSize: 18, fontWeight: '600', color: '#cdccca' },
+  tabRow: { flexDirection: 'row', gap: 8, padding: 20, paddingBottom: 8 },
+  tab: {
+    flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center',
+    backgroundColor: '#1c1b19', borderWidth: 1, borderColor: '#262523',
   },
-  statLabel: { color: '#797876', fontSize: 12, marginBottom: 8, textAlign: 'center' },
-  statValue: { color: '#cdccca', fontSize: 18, fontWeight: 'bold' },
-
-  // Gráfico
-  chartSection: {
-    backgroundColor: '#1c1b19',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#393836',
-    padding: 16,
-  },
-  sectionTitle: { color: '#cdccca', fontSize: 16, fontWeight: 'bold', marginBottom: 12 },
-  tabRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  tabBtn: {
-    paddingHorizontal: 14, paddingVertical: 6,
-    borderRadius: 20, backgroundColor: '#201f1d',
-    borderWidth: 1, borderColor: '#393836'
-  },
-  tabBtnActive: { backgroundColor: '#4f98a3', borderColor: '#4f98a3' },
-  tabText: { color: '#797876', fontSize: 13, fontWeight: '600' },
-  tabTextActive: { color: '#fff' },
-  chartArea: { minHeight: CHART_HEIGHT + 30 },
-  totalText: { color: '#797876', fontSize: 13, marginTop: 8, textAlign: 'right' },
-
-  // Alertas
-  alertsContainer: { marginTop: 4 },
-  addAlertBtn: {
-    backgroundColor: '#201f1d', padding: 15, borderRadius: 8,
-    borderWidth: 1, borderColor: '#393836', alignItems: 'center', borderStyle: 'dashed'
-  },
-  addAlertText: { color: '#4f98a3', fontWeight: 'bold' }
+  tabActive: { backgroundColor: '#4f98a3', borderColor: '#4f98a3' },
+  tabTxt: { fontSize: 13, color: '#797876', fontWeight: '500' },
+  tabTxtActive: { color: '#171614', fontWeight: '700' },
+  chartContainer: { marginHorizontal: 20, marginTop: 8, minHeight: 200 },
+  totalText: { fontSize: 13, color: '#797876', textAlign: 'center', marginTop: 8 },
+  emptyChart: { color: '#5a5957', textAlign: 'center', marginTop: 40, fontSize: 14 },
 });

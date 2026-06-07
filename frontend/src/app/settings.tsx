@@ -1,174 +1,225 @@
+// frontend/src/app/settings.tsx
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, Switch, TouchableOpacity,
-  ScrollView, Alert, TextInput
+  View, Text, StyleSheet, ScrollView,
+  Switch, TouchableOpacity, TextInput, Alert
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { devicesApi } from '../api/devices';
-import { API_BASE_URL } from '../api/client';
+import { apiClient } from '../lib/api';
+import { useSettingsStore } from '../stores/settingsStore';
 
-export default function Settings() {
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [alertSound, setAlertSound] = useState(false);
+export default function SettingsScreen() {
+  const {
+    notificationsEnabled,
+    alertThresholdW,
+    setNotificationsEnabled,
+    setAlertThreshold,
+  } = useSettingsStore();
 
-  // Lê o summary para mostrar métricas gerais
+  const [thresholdInput, setThresholdInput] = useState(String(alertThresholdW));
+
   const { data: summary } = useQuery({
     queryKey: ['summary'],
-    queryFn: devicesApi.summary,
+    queryFn: () => apiClient.get('/api/summary').then(r => r.data),
+    staleTime: 30_000,
   });
 
-  const handleClearAlerts = () => {
-    Alert.alert(
-      'Limpar Alertas',
-      'Confirmar o reconhecimento de todos os alertas pendentes?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Confirmar', style: 'destructive',
-          onPress: () => Alert.alert('Feito', 'Alertas reconhecidos.'),
-        },
-      ]
-    );
-  };
+  function saveThreshold() {
+    const val = parseFloat(thresholdInput);
+    if (!isNaN(val) && val > 0) {
+      setAlertThreshold(val);
+      Alert.alert('Guardado', `Limite de alerta definido para ${val} W`);
+    }
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-
-      {/* TÍTULO */}
       <Text style={styles.pageTitle}>Definições</Text>
 
-      {/* ── SECÇÃO: SERVIDOR ── */}
+      {/* Utilizador actual */}
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>LIGAÇÃO AO SERVIDOR</Text>
-        <View style={styles.card}>
-          <Row label="Endereço API" value={API_BASE_URL} mono />
-          <Divider />
-          <Row label="Estado" value={summary ? 'Online ✓' : 'A verificar…'}
-            valueColor={summary ? '#6daa45' : '#797876'} />
+        <Text style={styles.sectionTitle}>Conta</Text>
+        <View style={styles.row}>
+          <View style={styles.rowIcon}>
+            <Text style={styles.iconEmoji}>👤</Text>
+          </View>
+          <View style={styles.rowContent}>
+            <Text style={styles.rowLabel}>Utilizador</Text>
+            <Text style={styles.rowValue}>
+              {summary?.user ?? 'Administrador'}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.row}>
+          <View style={styles.rowIcon}>
+            <Text style={styles.iconEmoji}>🏠</Text>
+          </View>
+          <View style={styles.rowContent}>
+            <Text style={styles.rowLabel}>Dispositivos activos</Text>
+            <Text style={styles.rowValue}>
+              {summary?.devices_on ?? '--'} / {summary?.total_devices ?? '--'}
+            </Text>
+          </View>
         </View>
       </View>
 
-      {/* ── SECÇÃO: SISTEMA ── */}
+      {/* Notificações */}
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>SISTEMA</Text>
-        <View style={styles.card}>
-          <Row label="Dispositivos totais" value={String(summary?.devices_count ?? '—')} />
-          <Divider />
-          <Row label="Dispositivos online" value={String(summary?.online_count ?? '—')} />
-          <Divider />
-          <Row label="Potência total actual" value={`${summary?.total_power_w?.toFixed(1) ?? '0'} W`} />
-          <Divider />
-          <Row label="Alertas não reconhecidos" value={String(summary?.alerts_unacked ?? '0')}
-            valueColor={(summary?.alerts_unacked ?? 0) > 0 ? '#dd6974' : '#6daa45'} />
-        </View>
-      </View>
+        <Text style={styles.sectionTitle}>Notificações e Alertas</Text>
 
-      {/* ── SECÇÃO: NOTIFICAÇÕES ── */}
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>NOTIFICAÇÕES</Text>
-        <View style={styles.card}>
-          <SwitchRow
-            label="Alertas activos"
-            description="Receber notificações quando um alerta é disparado"
+        <View style={styles.row}>
+          <View style={styles.rowContent}>
+            <Text style={styles.rowLabel}>Alertas activos</Text>
+            <Text style={styles.rowSubtitle}>
+              Receber notificação quando consumo exceder limite
+            </Text>
+          </View>
+          <Switch
             value={notificationsEnabled}
-            onChange={setNotificationsEnabled}
-          />
-          <Divider />
-          <SwitchRow
-            label="Som nos alertas"
-            description="Reproduzir som ao receber um alerta crítico"
-            value={alertSound}
-            onChange={setAlertSound}
+            onValueChange={setNotificationsEnabled}
+            trackColor={{ false: '#393836', true: '#4f98a3' }}
+            thumbColor={notificationsEnabled ? '#171614' : '#5a5957'}
           />
         </View>
+
+        {notificationsEnabled && (
+          <View style={styles.row}>
+            <View style={styles.rowContent}>
+              <Text style={styles.rowLabel}>Limite de consumo (W)</Text>
+              <Text style={styles.rowSubtitle}>Alerta quando um dispositivo exceder este valor</Text>
+            </View>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.input}
+                value={thresholdInput}
+                onChangeText={setThresholdInput}
+                keyboardType="numeric"
+                onBlur={saveThreshold}
+                returnKeyType="done"
+                onSubmitEditing={saveThreshold}
+              />
+              <Text style={styles.inputUnit}>W</Text>
+            </View>
+          </View>
+        )}
       </View>
 
-      {/* ── SECÇÃO: AÇÕES ── */}
+      {/* Servidor */}
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>AÇÕES</Text>
-        <View style={styles.card}>
-          <TouchableOpacity style={styles.actionRow} onPress={handleClearAlerts}>
-            <Text style={styles.actionLabel}>Reconhecer todos os alertas</Text>
-            <Text style={styles.actionArrow}>→</Text>
-          </TouchableOpacity>
+        <Text style={styles.sectionTitle}>Servidor</Text>
+        <ServerSettings />
+      </View>
+
+      {/* Info da app */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Sobre</Text>
+        <View style={styles.row}>
+          <View style={styles.rowContent}>
+            <Text style={styles.rowLabel}>Versão da aplicação</Text>
+            <Text style={styles.rowValue}>1.0.0</Text>
+          </View>
         </View>
       </View>
-
-      {/* ── SECÇÃO: SOBRE ── */}
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>SOBRE</Text>
-        <View style={styles.card}>
-          <Row label="Versão" value="1.0.0" />
-          <Divider />
-          <Row label="Plataforma" value="React Native Expo" />
-          <Divider />
-          <Row label="Backend" value="Flask + SQLite" />
-        </View>
-      </View>
-
     </ScrollView>
   );
 }
 
-// ── Sub-componentes ──
+function ServerSettings() {
+  const { serverUrl, setServerUrl } = useSettingsStore();
+  const [input, setInput] = useState(serverUrl);
+  const [status, setStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
 
-function Row({ label, value, mono = false, valueColor }: {
-  label: string; value: string; mono?: boolean; valueColor?: string;
-}) {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={[styles.rowValue, mono && styles.mono, valueColor ? { color: valueColor } : null]}
-        numberOfLines={1}>
-        {value}
-      </Text>
-    </View>
-  );
-}
+  async function testConnection() {
+    setStatus('testing');
+    try {
+      const res = await fetch(`${input}/api/summary`, { signal: AbortSignal.timeout(3000) });
+      setStatus(res.ok ? 'ok' : 'error');
+    } catch {
+      setStatus('error');
+    }
+  }
 
-function SwitchRow({ label, description, value, onChange }: {
-  label: string; description: string; value: boolean; onChange: (v: boolean) => void;
-}) {
+  function save() {
+    setServerUrl(input);
+    Alert.alert('Guardado', `Servidor: ${input}`);
+  }
+
+  const statusColor = { idle: '#797876', testing: '#d19900', ok: '#6daa45', error: '#dd6974' };
+  const statusLabel = { idle: '—', testing: 'A testar...', ok: 'Online', error: 'Sem resposta' };
+
   return (
-    <View style={styles.switchRow}>
-      <View style={{ flex: 1, paddingRight: 12 }}>
-        <Text style={styles.rowLabel}>{label}</Text>
-        <Text style={styles.rowDesc}>{description}</Text>
+    <>
+      <View style={styles.row}>
+        <View style={styles.rowContent}>
+          <Text style={styles.rowLabel}>URL do servidor</Text>
+          <TextInput
+            style={styles.urlInput}
+            value={input}
+            onChangeText={setInput}
+            placeholder="http://192.168.1.x:8081"
+            placeholderTextColor="#5a5957"
+            autoCapitalize="none"
+            keyboardType="url"
+          />
+        </View>
       </View>
-      <Switch
-        value={value}
-        onValueChange={onChange}
-        trackColor={{ false: '#393836', true: '#227f8b' }}
-        thumbColor={value ? '#4f98a3' : '#797876'}
-      />
-    </View>
+      <View style={styles.serverActions}>
+        <TouchableOpacity style={styles.btnSecondary} onPress={testConnection}>
+          <Text style={styles.btnSecondaryTxt}>Testar ligação</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.btnPrimary} onPress={save}>
+          <Text style={styles.btnPrimaryTxt}>Guardar</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={[styles.statusTxt, { color: statusColor[status] }]}>
+        {statusLabel[status]}
+      </Text>
+    </>
   );
-}
-
-function Divider() {
-  return <View style={styles.divider} />;
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#171614' },
-  content: { padding: 20, paddingTop: 60, paddingBottom: 40, gap: 24 },
-  pageTitle: { fontSize: 28, fontWeight: 'bold', color: '#cdccca', marginBottom: 4 },
-
-  section: { gap: 8 },
-  sectionLabel: { fontSize: 11, color: '#5a5957', fontWeight: '700', letterSpacing: 1.2, paddingLeft: 4 },
-  card: { backgroundColor: '#1c1b19', borderRadius: 10, borderWidth: 1, borderColor: '#393836', overflow: 'hidden' },
-
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14 },
-  rowLabel: { color: '#cdccca', fontSize: 15 },
-  rowDesc: { color: '#5a5957', fontSize: 12, marginTop: 2 },
-  rowValue: { color: '#797876', fontSize: 14, maxWidth: '55%', textAlign: 'right' },
-  mono: { fontFamily: 'monospace', fontSize: 12, color: '#4f98a3' },
-
-  switchRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14 },
-
-  actionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 16 },
-  actionLabel: { color: '#dd6974', fontSize: 15, fontWeight: '600' },
-  actionArrow: { color: '#797876', fontSize: 16 },
-
-  divider: { height: 1, backgroundColor: '#262523', marginLeft: 16 },
+  content: { padding: 20, paddingBottom: 40 },
+  pageTitle: { fontSize: 28, fontWeight: '700', color: '#cdccca', marginBottom: 24 },
+  section: {
+    backgroundColor: '#1c1b19', borderRadius: 16,
+    borderWidth: 1, borderColor: '#262523', marginBottom: 20, overflow: 'hidden',
+  },
+  sectionTitle: {
+    fontSize: 11, fontWeight: '600', color: '#5a5957', textTransform: 'uppercase',
+    letterSpacing: 1, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8,
+  },
+  row: {
+    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16,
+    paddingVertical: 14, borderTopWidth: 1, borderTopColor: '#262523',
+  },
+  rowIcon: { width: 32, marginRight: 12 },
+  iconEmoji: { fontSize: 18 },
+  rowContent: { flex: 1 },
+  rowLabel: { fontSize: 15, color: '#cdccca', fontWeight: '500' },
+  rowSubtitle: { fontSize: 12, color: '#797876', marginTop: 2 },
+  rowValue: { fontSize: 13, color: '#4f98a3', marginTop: 2 },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  input: {
+    backgroundColor: '#262523', color: '#cdccca', borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 6, fontSize: 15, minWidth: 80, textAlign: 'right',
+  },
+  inputUnit: { fontSize: 13, color: '#797876' },
+  urlInput: {
+    backgroundColor: '#262523', color: '#cdccca', borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, marginTop: 6,
+  },
+  serverActions: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingBottom: 14 },
+  btnSecondary: {
+    flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center',
+    backgroundColor: '#262523', borderWidth: 1, borderColor: '#393836',
+  },
+  btnSecondaryTxt: { color: '#cdccca', fontSize: 14, fontWeight: '600' },
+  btnPrimary: {
+    flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center',
+    backgroundColor: '#4f98a3',
+  },
+  btnPrimaryTxt: { color: '#171614', fontSize: 14, fontWeight: '700' },
+  statusTxt: { fontSize: 12, textAlign: 'center', paddingBottom: 14 },
 });
