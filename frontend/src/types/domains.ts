@@ -1,22 +1,22 @@
-export type TipoDispositivo = 'light' | 'blind' | 'outlet' | 'climate' | 'sensor'
-export type Fabricante = 'tapo' | 'shelly' | 'sonoff' | 'generic'
+export type DeviceType = 'light' | 'blind' | 'outlet' | 'climate' | 'sensor'
+export type Vendor = 'tapo' | 'shelly' | 'sonoff' | 'generic'
 export type EstadoMapeamento = 'matched' | 'unmatched' | 'manual'
-export type SeccaoAlerta = 'info' | 'warning' | 'critical'
+export type AlertsSection = 'info' | 'warning' | 'critical'
 
-export interface Ponto3D {
+export interface _3DPoint {
   x: number
   y: number
   z: number
 }
 
-export interface Dispositivo {
+export interface Device {
   id: string
   name: string
-  type: TipoDispositivo
-  vendor: Fabricante
+  type: DeviceType
+  vendor: Vendor
   room_id: string
   state: Record<string, unknown>
-  position: Ponto3D
+  position: _3DPoint
   online: boolean
   created_at: string
   vendor_room_name?: string | null
@@ -24,25 +24,25 @@ export interface Dispositivo {
   mapping_status: EstadoMapeamento
 }
 
-export interface CriarDispositivoInput {
+export interface CreateDeviceInput {
   name: string
-  type: TipoDispositivo
-  vendor: Fabricante
+  type: DeviceType
+  vendor: Vendor
   room_id: string
   state?: Record<string, unknown>
-  position?: Ponto3D
+  position?: _3DPoint
   vendor_room_name?: string | null
   project_room_id?: string | null
   mapping_status?: EstadoMapeamento
 }
 
-export interface ActualizarDispositivoInput {
+export interface UpdateDeviceInput {
   name?: string
-  type?: TipoDispositivo
-  vendor?: Fabricante
+  type?: DeviceType
+  vendor?: Vendor
   room_id?: string
   state?: Record<string, unknown>
-  position?: Ponto3D
+  position?: _3DPoint
   online?: boolean
   vendor_room_name?: string | null
   project_room_id?: string | null
@@ -60,16 +60,16 @@ export interface Division {
   color: string
 }
 
-export interface MapeamentoDivisao {
+export interface RoomMapping {
   id: string
-  vendor: Fabricante
+  vendor: Vendor
   vendor_room_name: string
   project_room_id: string
   match_mode: 'auto' | 'manual'
   updated_at: string
 }
 
-export interface RegraAlerta {
+export interface AlertRule {
   id: string
   device_id: string
   name: string
@@ -81,7 +81,7 @@ export interface RegraAlerta {
   created_at: string
 }
 
-export interface CriarRegraAlertaInput {
+export interface CreateAlertRuleInput {
   device_id: string
   name: string
   metric: string
@@ -91,18 +91,18 @@ export interface CriarRegraAlertaInput {
   notify?: boolean
 }
 
-export interface EventoAlerta {
+export interface AlertEvent {
   id: string
   device_id: string
   rule_id?: string | null
   title: string
   message: string
-  severity: SeccaoAlerta
+  severity: AlertsSection
   acknowledged: boolean
   created_at: string
 }
 
-export interface ConfiguracaoApp {
+export interface AppSettings {
   flask_server_url: string
   flask_api_key: string
   house_name: string
@@ -111,7 +111,7 @@ export interface ConfiguracaoApp {
   alexa_enabled: boolean
 }
 
-export interface ResumoCasa {
+export interface HouseSummary {
   rooms_count: number
   devices_count: number
   mapped_devices_count: number
@@ -123,14 +123,14 @@ export interface ResumoCasa {
   alerts_unacked: number
 }
 
-export interface PontoConsumo {
+export interface ComsuptionPoint {
   t: string
   power_w: number
 }
 
-export interface ConsumoDispositivo {
+export interface DeviceComsuption {
   device_id: string
   hours: number
-  points: PontoConsumo[]
+  points: ComsuptionPoint[]
   total_kwh: number
 }
