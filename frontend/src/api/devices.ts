@@ -15,9 +15,8 @@ export type Device = {
   mapping_status?: 'matched' | 'unmatched' | 'manual'
 }
 
-// ── O NOVO TIPO PARA CRIAR TOMADAS COM IP ──
 export type DeviceCreate = {
-  ip: string  // <--- OBRIGATÓRIO AGORA!
+  ip: string
   name?: string | null
   type?: 'light' | 'blind' | 'outlet' | 'climate' | 'sensor'
   vendor?: 'tapo' | 'shelly' | 'sonoff' | 'generic'
@@ -45,6 +44,12 @@ export type Summary = {
 
 export type ConsumptionPoint = { t: string; power_w: number }
 export type ConsumptionResponse = { device_id: string; hours: number; points: ConsumptionPoint[]; total_kwh: number }
+
+// Tipo para histórico de gráfico (igual ao plug.html antigo)
+export type HistoryResponse = {
+  labels: string[]
+  data: number[]
+}
 
 export type AlertRule = {
   id: string
@@ -84,7 +89,12 @@ export const devicesApi = {
   summary: () => request<Summary>('/summary'),
   get: (id: string) => request<Device>(`/devices/${encodeURIComponent(id)}`),
   
-  // ── AÇÕES DE CONTROLO E GESTÃO (NOVAS) ──
+  // ── HISTÓRICO PARA GRÁFICO (compatível com plug.html) ──
+  // viewType: 'H' = horário, 'D' = diário, 'W' = semanal, 'M' = mensal
+  history: (id: string, viewType: 'H' | 'D' | 'W' | 'M') =>
+    request<HistoryResponse>(`/devices/${encodeURIComponent(id)}/history/${viewType}`),
+
+  // ── AÇÕES DE CONTROLO E GESTÃO ──
   create: (body: DeviceCreate) => 
     request<Device>('/devices', { method: 'POST', body: JSON.stringify(body) }),
   
