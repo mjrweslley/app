@@ -1,16 +1,19 @@
 // frontend/src/hooks/useDevices.ts
 import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '../lib/api';
-import { Device } from '../types';
+import { apiClient } from '../api';
+import type { Device } from '../index';
 
 export function useDevices() {
   return useQuery<Device[]>({
     queryKey: ['devices'],
-    queryFn: () => apiClient.get('/api/devices').then(r => r.data),
-    staleTime: 0,           // sempre considera stale → fetch imediato no mount
-    refetchInterval: 5000,  // polling a cada 5 segundos
+    queryFn: async (): Promise<Device[]> => {
+      const r = await apiClient.get<Device[]>('/api/devices');
+      return r.data;
+    },
+    staleTime: 0,
+    refetchInterval: 5000,
     refetchIntervalInBackground: true,
-    refetchOnMount: 'always', // <-- CHAVE: força fetch logo no mount
+    refetchOnMount: 'always',
     refetchOnWindowFocus: false,
   });
 }

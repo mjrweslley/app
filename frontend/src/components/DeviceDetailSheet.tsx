@@ -5,8 +5,8 @@ import {
   TouchableOpacity, Modal, ActivityIndicator
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '../lib/api';
-import { Device } from '../types';
+import { apiClient } from '../api';
+import type { Device } from '../index';
 // Se usares Victory Native:
 // import { VictoryBar, VictoryChart, VictoryTheme, VictoryAxis } from 'victory-native';
 
@@ -26,14 +26,15 @@ interface Props {
 export function DeviceDetailSheet({ device, visible, onClose }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>('H');
 
-  const { data: history, isLoading: historyLoading } = useQuery<HistoryData>({
+  const { data: history } = useQuery<HistoryData>({
     queryKey: ['device-history', device?.id, activeTab],
-    queryFn: () =>
-      apiClient
-        .get(`/api/devices/${device?.id}/history/${activeTab}`)
-        .then(r => r.data),
+    queryFn: async (): Promise<HistoryData> => {
+      const r = await apiClient.get<HistoryData>(
+        `/api/devices/${device?.id}/history/${activeTab}`
+      );
+      return r.data;
+    },
     enabled: !!device && visible,
-    staleTime: 30_000,
   });
 
   const total = history?.data?.reduce((a, b) => a + b, 0) ?? 0;

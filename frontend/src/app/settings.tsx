@@ -5,7 +5,7 @@ import {
   Switch, TouchableOpacity, TextInput, Alert
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '../lib/api';
+import { apiClient } from '../api';
 import { useSettingsStore } from '../stores/settingsStore';
 
 export default function SettingsScreen() {

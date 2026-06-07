@@ -1,7 +1,7 @@
 // frontend/src/components/DeviceCard.tsx
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Device } from '../types';
+import type { Device } from '../index';
 
 interface Props {
   device: Device;
