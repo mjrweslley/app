@@ -3,7 +3,7 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://smarthub.lo
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const base = API_BASE_URL.replace(/\/$/, '')
-  const route = path.startsWith('/') ? path : `/${path}`
+  const route = path.startsWith('/api/') ? path.slice(4) : (path.startsWith('/') ? path : `/${path}`)
   const res = await fetch(`${base}${route}`, {
     ...options,
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
@@ -14,4 +14,5 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   return res.json() as Promise<T>
 }
+export const requestJson = request
 export { API_BASE_URL, request }
