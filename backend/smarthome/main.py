@@ -29,17 +29,35 @@ class DevicePatch(BaseModel):
     position:dict|None=None
 
 def migrate_legacy():
-    path=Path(settings.legacy_devices_file)
-    if not path.exists(): return
+    device_path=Path(settings.legacy_devices_file)
+    mapping_path=Path(settings.legacy_room_mappings_file)
     with SessionLocal() as db:
-        if db.scalar(select(func.count()).select_from(Device)): return
-        try: raw=json.loads(path.read_text(encoding="utf-8"))
-        except Exception: log.exception("Não foi possível importar devices.json"); return
-        rows=raw.get("devices",[]) if isinstance(raw,dict) else raw
-        for x in rows:
-            if not isinstance(x,dict) or not x.get("id"): continue
-            db.add(Device(id=x["id"],name=x.get("name") or x["id"],vendor=x.get("vendor","generic"),protocol="legacy_unverified",vendor_device_id=x.get("vendor_device_id"),room_id=x.get("room_id") or "Unknown",project_room_id=x.get("project_room_id"),mapping_status=x.get("mapping_status") or "unmatched",device_type="outlet" if x.get("type") in ("plug","outlet") else x.get("type","sensor"),state=x.get("state") or {},position=x.get("position") or {"x":0,"y":0,"z":0},online=False))
-        db.commit()
+        if device_path.exists() and not db.scalar(select(func.count()).select_from(Device)):
+            try:
+                raw=json.loads(device_path.read_text(encoding="utf-8"))
+                rows=raw.get("devices",[]) if isinstance(raw,dict) else raw
+                for x in rows:
+                    if not isinstance(x,dict) or not x.get("id"): continue
+                    db.add(Device(id=x["id"],name=x.get("name") or x["id"],vendor=x.get("vendor","generic"),protocol="legacy_unverified",vendor_device_id=x.get("vendor_device_id"),room_id=x.get("room_id") or "Unknown",project_room_id=x.get("project_room_id"),mapping_status=x.get("mapping_status") or "unmatched",device_type="outlet" if x.get("type") in ("plug","outlet") else x.get("type","sensor"),state=x.get("state") or {},position=x.get("position") or {"x":0,"y":0,"z":0},online=False))
+                db.commit()
+                log.info("Inventário legado importado")
+            except Exception:
+                db.rollback()
+                log.exception("Não foi possível importar devices.json")
+        if mapping_path.exists() and not db.scalar(select(func.count()).select_from(RoomMapping)):
+            try:
+                raw_mappings=json.loads(mapping_path.read_text(encoding="utf-8"))
+                values=raw_mappings.values() if isinstance(raw_mappings,dict) else raw_mappings
+                for item in values:
+                    if not isinstance(item,dict): continue
+                    key=item.get("id") or f'{item.get("vendor","generic")}:{item.get("vendor_room_name","")}'
+                    if not item.get("vendor_room_name") or not item.get("project_room_id"): continue
+                    db.add(RoomMapping(id=key,vendor=item.get("vendor","generic"),vendor_room_name=item["vendor_room_name"],project_room_id=item["project_room_id"],match_mode=item.get("match_mode","manual")))
+                db.commit()
+                log.info("Mapeamentos de divisões legados importados")
+            except Exception:
+                db.rollback()
+                log.exception("Não foi possível importar room_mappings.json")
 @asynccontextmanager
 async def lifespan(app):
     Base.metadata.create_all(bind=engine); migrate_legacy()
