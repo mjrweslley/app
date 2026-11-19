@@ -9,9 +9,9 @@
 7. Copiar .env.example para .env e definir uma password PostgreSQL longa, alfanumérica e URL-safe.
 8. Validar e iniciar:
 
-docker compose --env-file .env config
-docker compose --env-file .env up -d --build
-docker compose --env-file .env ps
+docker compose --env-file .env -f infrastructure/docker-compose.yml config
+docker compose --env-file .env -f infrastructure/docker-compose.yml up -d --build
+docker compose --env-file .env -f infrastructure/docker-compose.yml ps
 
 Abrir http://IP-DO-HUB:8080.
 
@@ -19,6 +19,6 @@ O adapter ember deve ser confirmado para o firmware e versão Zigbee2MQTT instal
 
 Backup:
 mkdir -p backups
-docker compose --env-file .env exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > backups/smarthome-$(date +%F-%H%M).sql
+docker compose --env-file .env -f infrastructure/docker-compose.yml exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > backups/smarthome-$(date +%F-%H%M).sql
 
 Guardar cópia cifrada do .env fora do Git. Nunca adicionar credenciais ao repositório.
