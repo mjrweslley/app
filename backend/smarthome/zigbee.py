@@ -63,7 +63,7 @@ async def listener():
                 async for m in c.messages:
                     topic=str(m.topic); raw=m.payload.decode(errors="replace")
                     try: p=json.loads(raw)
-                    except json.JSONDecodeError: p={}
+                    except json.JSONDecodeError: p=raw
                     await asyncio.to_thread(event,topic,raw)
                     prefix=settings.mqtt_topic_prefix+"/"
                     if topic==prefix+"bridge/devices" and isinstance(p,list):
