@@ -4,5 +4,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY smarthome ./smarthome
+RUN mkdir -p /app/legacy
 COPY devices.json /app/legacy/devices.json
+COPY room_mappings.json /app/legacy/room_mappings.json
 CMD ["uvicorn","smarthome.main:app","--host","0.0.0.0","--port","8000"]
