@@ -20,7 +20,7 @@ services:
     image: eclipse-mosquitto:2
     restart: unless-stopped
     volumes:
-      - ./infrastructure/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
     networks: [mqtt_net]
@@ -31,13 +31,13 @@ services:
     environment:
       TZ: ${TZ:-Europe/Lisbon}
     volumes:
-      - ./infrastructure/zigbee2mqtt:/app/data
+      - ./zigbee2mqtt:/app/data
     devices:
       - "${ZIGBEE_SERIAL_PORT}:/dev/ttyACM0"
     networks: [mqtt_net]
   api:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
@@ -60,7 +60,7 @@ services:
       retries: 5
   frontend:
     build:
-      context: ./frontend
+      context: ../frontend
       dockerfile: Dockerfile
       args:
         EXPO_PUBLIC_API_BASE_URL: /api
