@@ -15,7 +15,7 @@ Plataforma de domótica **local-first**, preparada para operar sem Internet. Man
 2. Copiar .env.example para .env e definir uma password PostgreSQL forte, URL-safe.
 3. Ligar o coordenador e obter o caminho com ls -l /dev/serial/by-id/.
 4. Definir ZIGBEE_SERIAL_PORT no .env.
-5. Executar docker compose --env-file .env up -d --build.
+5. Executar docker compose --env-file .env -f infrastructure/docker-compose.yml up -d --build.
 6. Abrir http://IP-DO-HUB:8080.
 
 Ver docs/INSTALLATION.md, docs/ARCHITECTURE.md e docs/OFFLINE-TESTS.md.
