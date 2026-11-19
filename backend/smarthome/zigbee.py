@@ -43,6 +43,16 @@ def registry(items):
             d.model=x.get("model_id"); d.vendor_device_id=x.get("ieee_address") or name; d.protocol="zigbee"
             d.capabilities=[e.get("name") for e in x.get("definition",{}).get("exposes",[]) if isinstance(e,dict) and e.get("name")]
         db.commit()
+def set_availability(name, payload):
+    state = payload.get("state") if isinstance(payload, dict) else payload
+    with SessionLocal() as db:
+        device = db.get(Device, name)
+        if device is not None:
+            device.online = str(state).lower() == "online"
+            if device.online:
+                device.last_seen = datetime.now(timezone.utc)
+            db.commit()
+
 def event(topic,payload):
     with SessionLocal() as db: db.add(Event(topic=topic,payload=payload[:12000])); db.commit()
 async def listener():
@@ -56,7 +66,11 @@ async def listener():
                     except json.JSONDecodeError: p={}
                     await asyncio.to_thread(event,topic,raw)
                     prefix=settings.mqtt_topic_prefix+"/"
-                    if topic==prefix+"bridge/devices" and isinstance(p,list): await asyncio.to_thread(registry,p)
+                    if topic==prefix+"bridge/devices" and isinstance(p,list):
+                        await asyncio.to_thread(registry,p)
+                    elif topic.startswith(prefix) and topic.endswith("/availability"):
+                        name=topic[len(prefix):-len("/availability")]
+                        await asyncio.to_thread(set_availability,name,p)
                     elif topic.startswith(prefix) and topic.count("/") == 1 and isinstance(p,dict):
                         name=topic[len(prefix):]
                         if name!="bridge": await asyncio.to_thread(upsert,name,p)
