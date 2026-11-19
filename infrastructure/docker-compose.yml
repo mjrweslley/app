@@ -1,0 +1,81 @@
+name: smart-home-platform
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${TZ:-Europe/Lisbon}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [app_net]
+  mqtt:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks: [mqtt_net]
+  zigbee2mqtt:
+    image: koenkk/zigbee2mqtt:2
+    restart: unless-stopped
+    depends_on: [mqtt]
+    environment:
+      TZ: ${TZ:-Europe/Lisbon}
+    volumes:
+      - ./zigbee2mqtt:/app/data
+    devices:
+      - "${ZIGBEE_SERIAL_PORT}:/dev/ttyACM0"
+    networks: [mqtt_net]
+  api:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      MQTT_HOST: mqtt
+      MQTT_PORT: "1883"
+      MQTT_TOPIC_PREFIX: zigbee2mqtt
+      LEGACY_DEVICES_FILE: /app/legacy/devices.json
+      LEGACY_ROOM_MAPPINGS_FILE: /app/legacy/room_mappings.json
+      LOG_LEVEL: INFO
+    networks: [app_net, mqtt_net]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        EXPO_PUBLIC_API_BASE_URL: /api
+    restart: unless-stopped
+    depends_on: [api]
+    ports:
+      - "${APP_PORT:-8080}:80"
+    networks: [app_net]
+networks:
+  app_net:
+    internal: true
+  mqtt_net:
+    internal: true
+volumes:
+  postgres_data:
+  mosquitto_data:
+  mosquitto_log:

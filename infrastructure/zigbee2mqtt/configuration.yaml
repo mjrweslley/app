@@ -1,0 +1,18 @@
+homeassistant:
+  enabled: false
+permit_join: false
+mqtt:
+  base_topic: zigbee2mqtt
+  server: mqtt://mqtt:1883
+serial:
+  port: /dev/ttyACM0
+  adapter: ember
+frontend:
+  enabled: false
+advanced:
+  log_level: info
+  channel: 15
+  network_key: GENERATE
+availability:
+  enabled: true
+version: 4

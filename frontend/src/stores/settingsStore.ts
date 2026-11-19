@@ -1,4 +1,3 @@
-// frontend/src/stores/settingsStore.ts
 import { create } from 'zustand';
 
 interface SettingsState {
@@ -15,10 +14,10 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>((set) => ({
   notificationsEnabled: true,
   currentUser: 'Administrador',
-  serverUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://192.168.1.100:8081',
+  serverUrl: process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/api\/?$/, '') || 'http://smarthub.local:8080',
   alertThresholdW: 2000,
   setNotificationsEnabled: (value) => set({ notificationsEnabled: value }),
   setCurrentUser: (value) => set({ currentUser: value }),
-  setServerUrl: (value) => set({ serverUrl: value }),
+  setServerUrl: (value) => set({ serverUrl: value.replace(/\/$/, '') }),
   setAlertThreshold: (value) => set({ alertThresholdW: value }),
 }));
