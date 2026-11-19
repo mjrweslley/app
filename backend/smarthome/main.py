@@ -101,6 +101,9 @@ def summary(db:Session=Depends(get_db)):
     return {"rooms_count":len(ROOMS),"devices_count":len(ds),"mapped_devices_count":sum(d.mapping_status=="matched" for d in ds),"unmapped_devices_count":sum(d.mapping_status!="matched" for d in ds),"online_count":sum(d.online for d in ds),"lights_on":sum(d.device_type=="light" and bool((d.state or {}).get("on")) for d in ds),"total_power_w":power,"avg_temperature_c":sum(ts)/len(ts) if ts else None,"alerts_unacked":db.scalar(select(func.count()).select_from(AlertEvent).where(AlertEvent.acknowledged.is_(False))) or 0}
 @app.get("/api/project-rooms")
 def project_rooms(): return ROOMS
+
+@app.get("/api/rooms")
+def rooms_alias(): return ROOMS
 @app.get("/api/room-mappings")
 def room_mappings(db:Session=Depends(get_db)):
     return [{"id":m.id,"vendor":m.vendor,"vendor_room_name":m.vendor_room_name,"project_room_id":m.project_room_id,"match_mode":m.match_mode,"updated_at":m.updated_at.isoformat()} for m in db.scalars(select(RoomMapping)).all()]
