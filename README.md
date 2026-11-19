@@ -1,108 +1,29 @@
-1. **PRD & Vision**
+# Smart Home Platform
 
-   * Product vision
-   * User stories
-   * Roadmap
-   * Success metrics
+Plataforma de domótica **local-first**, preparada para operar sem Internet. Mantém a aplicação React Native/Expo existente e moderniza o backend com FastAPI, PostgreSQL, Mosquitto e Zigbee2MQTT.
 
-2. **System Architecture**
+## Stack
+- Frontend: Expo 54 / React Native / Expo Router.
+- Backend: Python 3.12 / FastAPI / SQLAlchemy.
+- Base de dados: PostgreSQL.
+- Mensagens: Mosquitto MQTT em rede Docker interna.
+- Zigbee: Zigbee2MQTT e coordenador USB local.
+- Deploy: Debian 13 + Docker Compose + Nginx.
 
-   * Overall architecture
-   * Domain model
-   * Event flows
-   * Offline strategy
+## Início rápido
+1. Instalar Debian 13 e Docker Engine + Compose.
+2. Copiar .env.example para .env e definir uma password PostgreSQL forte, URL-safe.
+3. Ligar o coordenador e obter o caminho com ls -l /dev/serial/by-id/.
+4. Definir ZIGBEE_SERIAL_PORT no .env.
+5. Executar docker compose --env-file .env up -d --build.
+6. Abrir http://IP-DO-HUB:8080.
 
-3. **Flask Backend**
+Ver docs/INSTALLATION.md, docs/ARCHITECTURE.md e docs/OFFLINE-TESTS.md.
 
-   * REST API
-   * WebSockets
-   * Device discovery
-   * Manufacturer adapters
+## Migração
+No primeiro arranque, os dispositivos de backend/devices.json são importados uma única vez para PostgreSQL. O ficheiro original não é alterado. Registos Tapo antigos são preservados, mas não recebem comandos até existir um adaptador local validado. Credenciais antigas não são importadas.
 
-4. **Device Abstraction Layer**
+## Limites do MVP
+Zigbee inclui descoberta, estado, disponibilidade, comandos on/off e emparelhamento por janela. Modbus tem modelo de dados e endpoints; o driver físico para o contador monofásico é a próxima etapa. Câmaras, automações visuais, acesso remoto e multi-tenant ainda não estão incluídos.
 
-   * Common device schema
-   * Capability model
-   * Matter-ready mapping
-
-5. **React Native Frontend**
-
-   * Expo Router
-   * Zustand
-   * React Query
-   * App structure
-
-6. **Three.js House Renderer**
-
-   * House model format
-   * Room rendering
-   * Camera controls
-   * Device overlays
-
-7. **Design System & UI**
-
-   * Colors
-   * Typography
-   * Components
-   * Motion
-   * PT-PT copy
-
-8. **Device Management**
-
-   * Discovery
-   * Pairing
-   * Editing
-   * Room assignment
-
-9. **Automation Engine**
-
-   * Rules
-   * Triggers
-   * Conditions
-   * Actions
-
-10. **Alerts & Notifications**
-
-    * Alert model
-    * Severity levels
-    * Notification center
-
-11. **Voice & Alexa Future**
-
-    * Alexa bridge
-    * Intent mapping
-    * Voice announcements
-
-12. **Local AI Agent**
-
-    * Voice assistant
-    * LLM integration
-    * Conversational control
-
-13. **Tablet Hardware Comparison**
-
-    * Android tablets
-    * iPads
-    * Thermal analysis
-    * Longevity
-
-14. **Deployment & Kiosk Mode**
-
-    * Android kiosk
-    * iPad guided access
-    * Auto-launch
-    * Recovery
-
-15. **Performance & 24/7 Reliability**
-
-    * Watchdogs
-    * Caching
-    * Reconnection
-    * Memory management
-
-16. **Testing & QA**
-
-    * Unit tests
-    * Integration tests
-    * Tablet tests
-    * Long-duration soak testing
+Antes de uso comercial: implementar autenticação/autorização, CORS restrito, ACL MQTT, TLS local, migrações Alembic, backups testados, SBOM e testes de segurança. Instalações elétricas devem ser feitas por profissional qualificado.
