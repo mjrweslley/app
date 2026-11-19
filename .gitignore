@@ -1,26 +1,18 @@
-# Secrets and Tokens
+# Local secrets and runtime data
 .env
-*.pem
-*.key
-*.token
-
-# Databases
-*.db
-*.sqlite
-*.sqlite3
-
-# Logs and Temps
-*.log
-__pycache__/
-*.pyc
-venv/
-.DS_Store
-
-# fallback for extra sec
 .env.*
-
-# Node / JS
+!.env.example
+**/.env
+**/.venv/
+**/__pycache__/
+*.py[cod]
+*.db
+*.sqlite*
+.pytest_cache/
+.coverage
 node_modules/
-
-# VS Code
-.vscode/
+.expo/
+dist/
+web-build/
+backups/
+.DS_Store
