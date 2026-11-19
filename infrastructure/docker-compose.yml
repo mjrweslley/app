@@ -11,21 +11,19 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$\${POSTGRES_USER}\" -d \"$\${POSTGRES_DB}\""]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 10
     networks: [app_net]
-
   mqtt:
     image: eclipse-mosquitto:2
     restart: unless-stopped
     volumes:
-      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./infrastructure/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
     networks: [mqtt_net]
-
   zigbee2mqtt:
     image: koenkk/zigbee2mqtt:2
     restart: unless-stopped
@@ -33,11 +31,10 @@ services:
     environment:
       TZ: ${TZ:-Europe/Lisbon}
     volumes:
-      - ./zigbee2mqtt:/app/data
+      - ./infrastructure/zigbee2mqtt:/app/data
     devices:
       - "${ZIGBEE_SERIAL_PORT}:/dev/ttyACM0"
     networks: [mqtt_net]
-
   api:
     build:
       context: ./backend
@@ -61,7 +58,6 @@ services:
       interval: 20s
       timeout: 5s
       retries: 5
-
   frontend:
     build:
       context: ./frontend
@@ -73,7 +69,6 @@ services:
     ports:
       - "${APP_PORT:-8080}:80"
     networks: [app_net]
-
 networks:
   app_net:
     internal: true
